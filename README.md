@@ -15,7 +15,7 @@ Forked from [manbearwiz/youtube-dl-server](https://github.com/manbearwiz/youtube
 
 ## Running
 
-For easier deployment, a docker image is available on [dockerhub](https://hub.docker.com/r/mizhgan/youtube-dl-server).
+For easier deployment, a docker image is available on [dockerhub](https://hub.docker.com/r/nbr23/youtube-dl-server).
 
 ### Docker CLI
 
