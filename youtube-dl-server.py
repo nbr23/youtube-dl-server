@@ -52,6 +52,7 @@ def api_list_finished():
 
 @app.route('/api/finished/:filename#.*#')
 def api_serve_finished_file(filename):
+    response.content_type = 'application/octet-stream'
     root_dir = Path(app_vars['YDL_OUTPUT_TEMPLATE']).parent
     return static_file(filename, root=root_dir)
 
