@@ -103,7 +103,8 @@ def get_ydl_options(request_options):
         'postprocessors': postprocessors,
         'outtmpl': ydl_vars['YDL_OUTPUT_TEMPLATE'],
         'download_archive': ydl_vars['YDL_ARCHIVE_FILE'],
-        'cachedir': ydl_vars['YDL_CACHE_DIR']
+        'cachedir': ydl_vars['YDL_CACHE_DIR'],
+        'cookies': ydl_vars['YDL_COOKIES_FILE']
     }
 
     ydl_options = {**ydl_vars['YDL_RAW_OPTIONS'], **ydl_options}
