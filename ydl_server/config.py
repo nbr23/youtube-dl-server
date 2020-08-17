@@ -15,4 +15,5 @@ app_defaults = {
     'YDL_RAW_OPTIONS': {
         'ignoreerrors': True
         },
+    'YDL_COOKIES_FILE': None,
 }
