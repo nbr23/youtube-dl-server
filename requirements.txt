@@ -1,2 +1,3 @@
 bottle
 youtube-dl
+kodi-json
