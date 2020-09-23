@@ -1,7 +1,7 @@
 #
-# youtube-dl Server Dockerfile
+# twl-dl-server Server Dockerfile
 #
-# https://github.com/nbr23/youtube-dl-server
+# https://github.com/ToWatchList/twl-dl-server
 #
 
 FROM python:alpine
