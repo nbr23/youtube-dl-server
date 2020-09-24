@@ -7,6 +7,7 @@ import io
 import importlib
 import youtube_dl
 import json
+import httpx
 from time import sleep
 import sys
 
@@ -45,6 +46,19 @@ def worker():
                 job.status = Job.FAILED
                 job.log += str(e)
                 print("Exception during download task:\n" + str(e))
+            stdout_thread.join()
+        elif job.type == JobType.TWL_DOWNLOAD:
+            output = io.StringIO()
+            stdout_thread = Thread(target=download_log_update,
+                    args=(job, output))
+            stdout_thread.start()
+            try:
+                job.log = Job.clean_logs(twldownload(job.url, {'format':  job.format}, output, job.id))
+                job.status = Job.COMPLETED
+            except Exception as e:
+                job.status = Job.FAILED
+                job.log += str(e)
+                print("Exception during ToWatchList task:\n" + str(e))
             stdout_thread.join()
         elif job.type == JobType.YDL_UPDATE:
             rc, log = update()
@@ -149,6 +163,22 @@ def download(url, request_options, output, job_id):
         ydl._err_file = ydl._screen_file
         ydl.download([url])
         return ydl._screen_file.getvalue()
+
+
+def twldownload(url, request_options, output, job_id):
+    TWL_API_TOKEN = os.getenv("TWL_API_TOKEN", default="unset").strip()
+    assert TWL_API_TOKEN != "unset", "ERROR: TWL_API_TOKEN is not set in env"
+
+    refreshTimeString = '-28days'  # relative English string will be parsed by PHP on the server side
+    r = httpx.get(f"https://towatchlist.com/api/v1/marks?since={refreshTimeString}&uid={TWL_API_TOKEN}")
+    r.raise_for_status()
+    myMarks = r.json()['marks']
+
+    with open('/youtube-dl/twl.json', 'w') as filehandle:
+        json.dump(myMarks, filehandle)
+
+    return f"Found {len(myMarks)} marks to download"
+
 
 def resume_pending():
     db = JobsDB(readonly=False)

@@ -23,6 +23,7 @@ class Actions:
 class JobType:
     YDL_DOWNLOAD = 0
     YDL_UPDATE = 1
+    TWL_DOWNLOAD = 2
 
 class Job:
     RUNNING = 0

@@ -110,6 +110,14 @@ def ydl_update():
     jobshandler.put((Actions.INSERT, job))
     return {"success": True}
 
+
+@app.route("/api/twl/download", method="GET")
+def twl_download():
+    job = Job("ToWatchList Update", Job.PENDING, "", JobType.TWL_DOWNLOAD, None, None)
+    jobshandler.put((Actions.INSERT, job))
+    return {"success": True}
+
+
 JobsDB.check_db_latest()
 JobsDB.init_db()
 
