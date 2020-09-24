@@ -8,8 +8,11 @@ import importlib
 import youtube_dl
 import json
 import httpx
+import glob
+from html.parser import HTMLParser
 from time import sleep
 import sys
+from pathlib import Path
 
 from ydl_server.logdb import JobsDB, Job, Actions, JobType
 from ydl_server import jobshandler
@@ -165,19 +168,67 @@ def download(url, request_options, output, job_id):
         return ydl._screen_file.getvalue()
 
 
+class MLStripper(HTMLParser):
+    def __init__(self):
+        self.reset()
+        self.fed = []
+    def handle_data(self, d):
+        self.fed.append(d)
+    def get_data(self):
+        return ''.join(self.fed)
+
+def strip_tags(html):
+    s = MLStripper()
+    s.feed(html)
+    return s.get_data()
+
+
 def twldownload(url, request_options, output, job_id):
     TWL_API_TOKEN = os.getenv("TWL_API_TOKEN", default="unset").strip()
     assert TWL_API_TOKEN != "unset", "ERROR: TWL_API_TOKEN is not set in env"
 
-    refreshTimeString = '-28days'  # relative English string will be parsed by PHP on the server side
+    refreshTimeString = '-1days'  # relative English string will be parsed by PHP on the server side
     r = httpx.get(f"https://towatchlist.com/api/v1/marks?since={refreshTimeString}&uid={TWL_API_TOKEN}")
     r.raise_for_status()
     myMarks = r.json()['marks']
 
-    with open('/youtube-dl/twl.json', 'w') as filehandle:
+    ydl_vars = ChainMap(os.environ, app_defaults)
+    root_dir = Path(ydl_vars['YDL_OUTPUT_TEMPLATE']).parent
+    with open(os.path.join(root_dir, '.twl.json'), 'w') as filehandle:
         json.dump(myMarks, filehandle)
 
-    return f"Found {len(myMarks)} marks to download"
+    shouldCleanKodi = False
+    downloadQueueAdd = 0
+    for i in range(len(myMarks)):
+        # set some values we'll use below
+        mmeta = {}  # mark metadata dict
+        mmeta['videoURL'] = myMarks[i]['Mark']['source_url']
+        mmeta['title'] = myMarks[i]['Mark']['title']
+        mmeta['video_id'] = myMarks[i]['Mark']['video_id']
+        mmeta['channel_title'] = myMarks[i]['Mark']['channel_title']
+        mmeta['duration'] = int(myMarks[i]['Mark']['duration']) / 60.0
+        mmeta['created'] = myMarks[i]['Mark']['created']
+        try:
+            mmeta['description'] = strip_tags(myMarks[i]['Mark']['comment'])
+        except:
+            mmeta['description'] = '-Failed to parse-'
+
+        if (myMarks[i]['Mark']['watched']) or (myMarks[i]['Mark']['delflag']):
+            # it's been marked as watched, delete the local copy
+            for filename in glob.glob(os.path.join(root_dir, f"*{mmeta['video_id']}*")):
+                os.remove(filename)
+                shouldCleanKodi = True
+            continue
+        downloadQueueAdd += 1
+        job = Job(mmeta['title'],
+                  Job.PENDING,
+                  "",
+                  JobType.YDL_DOWNLOAD,
+                  ydl_vars['YDL_FORMAT'],
+                  mmeta['videoURL'])
+        jobshandler.put((Actions.INSERT, job))
+
+    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, shouldCleanKodi {shouldCleanKodi}"
 
 
 def resume_pending():
