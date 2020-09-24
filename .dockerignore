@@ -1,4 +1,4 @@
-build-script.sh
+build+run.sh
 youtube-dl-server.png
 youtube-dl-server-logs.png
 .TWL_Token
