@@ -161,6 +161,42 @@ def download(url, request_options, output, job_id):
             ydl.params['outtmpl'] = ydl_opts['YDL_OUTPUT_TEMPLATE_PLAYLIST']
         ydl.params['extract_flat']= False
 
+        # 'YDL_OUTPUT_TEMPLATE': '/youtube-dl/%(title)s [%(id)s].%(ext)s',
+        # 'YDL_OUTPUT_TEMPLATE_PLAYLIST': '/youtube-dl/%(playlist_title)s/%(title)s [%(id)s].%(ext)s',
+
+        if 'YDL_WRITE_NFO' in ydl_opts and ydl_opts['YDL_WRITE_NFO']:
+            # write NFO file
+            vpath = Path(ydl.prepare_filename(info))
+            with open(os.path.join(vpath.parent, f"{vpath.stem}.nfo"), "w") as nfoF:
+                # json.dump(info, nfoF)
+                # nfoF.write(f"{info['title']}\n")
+                # nfoF.write(f"{ydl.prepare_filename(info)}.nfo\n")
+
+                nfoF.write("<musicvideo>\n")
+
+                if 'title' in info and info['title']:
+                    nfoF.write(f"  <title>{info['title']}</title>\n")
+                else:
+                    nfoF.write("  <title>Unknown Title</title>\n")
+
+                if 'uploader_id' in info and info['uploader_id']:
+                    nfoF.write(f"  <showtitle>{info['uploader_id']}</showtitle>\n")
+                else:
+                    nfoF.write("  <showtitle>Unknown Channel</showtitle>\n")
+
+                if 'description' in info and info['description']:
+                    nfoF.write(f"  <plot>{info['description']}</plot>\n")
+                else:
+                    nfoF.write("  <plot>Unknown Plot</plot>\n")
+
+                nfoF.write(f"  <runtime>{round(info['duration']/60.0)}</runtime>\n")
+                nfoF.write(f"  <thumb>{info['thumbnail']}</thumb>\n")
+                nfoF.write(f"  <videourl>{url}</videourl>\n")
+                # upload date is a dumb datestring eg 20200929 = 2020-09-29
+                nfoF.write(f"  <aired>{info['upload_date'][:4]}-{info['upload_date'][4:6]}-{info['upload_date'][6:]}</aired>\n")
+
+                nfoF.write("</musicvideo>\n")
+
         # Swap out sys.stdout as ydl's output so we can capture it
         ydl._screen_file = output
         ydl._err_file = ydl._screen_file
@@ -192,8 +228,8 @@ def twldownload(url, request_options, output, job_id):
     r.raise_for_status()
     myMarks = r.json()['marks']
 
-    ydl_vars = ChainMap(os.environ, app_defaults)
-    root_dir = Path(ydl_vars['YDL_OUTPUT_TEMPLATE']).parent
+    ydl_opts = ChainMap(os.environ, app_defaults)
+    root_dir = Path(ydl_opts['YDL_OUTPUT_TEMPLATE']).parent
     with open(os.path.join(root_dir, '.twl.json'), 'w') as filehandle:
         json.dump(myMarks, filehandle)
 
@@ -225,7 +261,7 @@ def twldownload(url, request_options, output, job_id):
                   Job.PENDING,
                   "",
                   JobType.YDL_DOWNLOAD,
-                  ydl_vars['YDL_FORMAT'],
+                  ydl_opts['YDL_FORMAT'],
                   mmeta['videoURL'])
         jobshandler.put((Actions.INSERT, job))
 

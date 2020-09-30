@@ -12,6 +12,7 @@ app_defaults = {
     'YDL_DB_PATH': '/youtube-dl/.ydl-metadata.db',
     'YDL_SUBTITLES_LANGUAGES': None,
     'YDL_DEBUG': False,
+    'YDL_WRITE_NFO': True,
     'YDL_RAW_OPTIONS': {
         'ignoreerrors': True
         },
