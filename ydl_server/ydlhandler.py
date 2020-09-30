@@ -180,7 +180,7 @@ def download(url, request_options, output, job_id):
                     nfoF.write("  <title>Unknown Title</title>\n")
 
                 if 'uploader_id' in info and info['uploader_id']:
-                    nfoF.write(f"  <showtitle>{info['uploader_id']}</showtitle>\n")
+                    nfoF.write(f"  <showtitle>{info['uploader']}</showtitle>\n")
                 else:
                     nfoF.write("  <showtitle>Unknown Channel</showtitle>\n")
 
