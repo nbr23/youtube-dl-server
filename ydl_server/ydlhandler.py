@@ -197,8 +197,8 @@ def twldownload(url, request_options, output, job_id):
     with open(os.path.join(root_dir, '.twl.json'), 'w') as filehandle:
         json.dump(myMarks, filehandle)
 
-    shouldCleanKodi = False
     downloadQueueAdd = 0
+    removedFiles = 0
     for i in range(len(myMarks)):
         # set some values we'll use below
         mmeta = {}  # mark metadata dict
@@ -217,8 +217,9 @@ def twldownload(url, request_options, output, job_id):
             # it's been marked as watched, delete the local copy
             for filename in glob.glob(os.path.join(root_dir, f"*{mmeta['video_id']}*")):
                 os.remove(filename)
-                shouldCleanKodi = True
+                removedFiles += 1
             continue
+
         downloadQueueAdd += 1
         job = Job(mmeta['title'],
                   Job.PENDING,
@@ -228,7 +229,11 @@ def twldownload(url, request_options, output, job_id):
                   mmeta['videoURL'])
         jobshandler.put((Actions.INSERT, job))
 
-    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, shouldCleanKodi {shouldCleanKodi}"
+    if removedFiles > 0:
+        # TODO: clean Kodi library
+        pass
+
+    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, removedFiles {removedFiles}"
 
 
 def resume_pending():
