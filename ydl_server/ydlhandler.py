@@ -252,6 +252,7 @@ def twldownload(url, request_options, output, job_id):
         if (myMarks[i]['Mark']['watched']) or (myMarks[i]['Mark']['delflag']):
             # it's been marked as watched, delete the local copy
             for filename in glob.glob(os.path.join(root_dir, f"*{mmeta['video_id']}*")):
+                # TODO we could remove more intellegently here
                 os.remove(filename)
                 removedFiles += 1
             continue
