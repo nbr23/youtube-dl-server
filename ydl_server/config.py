@@ -16,7 +16,7 @@ app_defaults = {
         'ignoreerrors': True
         },
     # should we write NFO files adacent to the downloaded movies, used to pass Metadata to Kodi etc
-    'YDL_WRITE_NFO': True,
+    'YDL_WRITE_NFO': False,
     # relative English string will be parsed into a timedelata from now by PHP on the server side
     'TWL_LOOKBACK_TIME_STRING': '-3days',
 }
