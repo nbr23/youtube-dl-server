@@ -227,8 +227,9 @@ def twldownload(url, request_options, output, job_id):
     TWL_API_TOKEN = os.getenv("TWL_API_TOKEN", default="unset").strip()
     assert TWL_API_TOKEN != "unset", "ERROR: TWL_API_TOKEN is not set in env"
 
-    refreshTimeString = '-1days'  # relative English string will be parsed by PHP on the server side
-    r = httpx.get(f"https://towatchlist.com/api/v1/marks?since={refreshTimeString}&uid={TWL_API_TOKEN}")
+    # relative English string will be parsed into a timedelata from now by PHP on the server side
+    LOOKBACK_STRING = os.getenv('LOOKBACK_STRING', default='-3days')
+    r = httpx.get(f"https://towatchlist.com/api/v1/marks?since={LOOKBACK_STRING}&uid={TWL_API_TOKEN}")
     r.raise_for_status()
     myMarks = r.json()['marks']
 
