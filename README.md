@@ -1,16 +1,15 @@
-![Docker Stars Shield](https://img.shields.io/docker/stars/nbr23/youtube-dl-server.svg?style=flat-square)
+<!-- ![Docker Stars Shield](https://img.shields.io/docker/stars/nbr23/youtube-dl-server.svg?style=flat-square)
 ![Docker Pulls Shield](https://img.shields.io/docker/pulls/nbr23/youtube-dl-server.svg?style=flat-square)
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://raw.githubusercontent.com/nbr23/youtube-dl-server/master/LICENSE)
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://raw.githubusercontent.com/nbr23/youtube-dl-server/master/LICENSE) -->
 
-# youtube-dl-server
+# twl-dl-server
 
 Simple Web and REST interface for downloading youtube videos onto a server. [`bottle`](https://github.com/bottlepy/bottle) + [`youtube-dl`](https://github.com/rg3/youtube-dl).
 
-Forked from [manbearwiz/youtube-dl-server](https://github.com/manbearwiz/youtube-dl-server).
+Forked from [nbr23/youtube-dl-server](https://github.com/nbr23/youtube-dl-server).
+Which was previously forked from [manbearwiz/youtube-dl-server](https://github.com/manbearwiz/youtube-dl-server).
 
 ![screenshot][1]
-
-
 ![screenshot][2]
 
 ## Running
@@ -22,7 +21,7 @@ For easier deployment, a docker image is available on [dockerhub](https://hub.do
 This example uses the docker run command to create the container to run the app. Note the `-v` argument to specify the volume and its binding on the host. This directory will be used to output the resulting videos.
 
 ```shell
-docker run -d --name youtube-dl -v $HOME/youtube-dl:/youtube-dl nbr23/youtube-dl-server
+docker run -d --name youtube-dl -v $HOME/youtube-dl:/youtube-dl towatchlist/twl-dl-server
 ```
 
 ### Docker Compose
@@ -31,7 +30,7 @@ This is an example service definition that could be put in `docker-compose.yml`.
 
 ```yml
   youtube-dl:
-    image: "nbr23/youtube-dl-server"
+    image: "towatchlist/twl-dl-server"
     volumes:
       - $HOME/youtube-dl:/youtube-dl
     restart: always
@@ -50,7 +49,7 @@ YDL_SUBTITLES_LANGUAGES="en"
 docker-compose.yml:
 ```yml
   youtube-dl:
-    image: "nbr23/youtube-dl-server"
+    image: "towatchlist/twl-dl-server"
     env_file:
       - ./config.env
     volumes:
