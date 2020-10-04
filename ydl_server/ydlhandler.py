@@ -274,7 +274,7 @@ def twldownload(url, request_options, output, job_id):
         # TODO: clean Kodi library
         pass
 
-    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, removed {removedFiles} vids/nfos"
+    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, Removed {removedFiles} vids/nfos"
 
 
 def resume_pending():
