@@ -19,7 +19,7 @@ docker run -d --name youtube-dl \
   -v ${localPath}:/youtube-dl \
   -p 8080:8080 \
   --env TWL_API_TOKEN=`cat .TWL_Token` \
-  --env TWL_LOOKBACK_TIME_STRING='-3days' \
+  --env TWL_LOOKBACK_TIME_STRING=-3min \
   --env YDL_WRITE_NFO=True \
   twl-dl-server
 docker ps
