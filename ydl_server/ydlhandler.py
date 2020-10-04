@@ -166,36 +166,40 @@ def download(url, request_options, output, job_id):
 
         if 'YDL_WRITE_NFO' in ydl_opts and ydl_opts['YDL_WRITE_NFO']:
             # write NFO file
-            vpath = Path(ydl.prepare_filename(info))
-            with open(os.path.join(vpath.parent, f"{vpath.stem}.nfo"), "w") as nfoF:
-                # json.dump(info, nfoF)
-                # nfoF.write(f"{info['title']}\n")
-                # nfoF.write(f"{ydl.prepare_filename(info)}.nfo\n")
+            vidpath = Path(ydl.prepare_filename(info))
+            nfopath = os.path.join(vidpath.parent, f"{vidpath.stem}.nfo")
+            if not os.path.isfile(nfopath):
+                with open(nfopath, "w") as nfoF:
+                    # json.dump(info, nfoF)
+                    # nfoF.write(f"{info['title']}\n")
+                    # nfoF.write(f"{ydl.prepare_filename(info)}.nfo\n")
 
-                nfoF.write("<musicvideo>\n")
+                    nfoF.write("<musicvideo>\n")
 
-                if 'title' in info and info['title']:
-                    nfoF.write(f"  <title>{info['title']}</title>\n")
-                else:
-                    nfoF.write("  <title>Unknown Title</title>\n")
+                    if 'title' in info and info['title']:
+                        nfoF.write(f"  <title>{info['title']}</title>\n")
+                    else:
+                        nfoF.write("  <title>Unknown Title</title>\n")
 
-                if 'uploader_id' in info and info['uploader_id']:
-                    nfoF.write(f"  <showtitle>{info['uploader']}</showtitle>\n")
-                else:
-                    nfoF.write("  <showtitle>Unknown Channel</showtitle>\n")
+                    if 'uploader_id' in info and info['uploader_id']:
+                        nfoF.write(f"  <showtitle>{info['uploader']}</showtitle>\n")
+                    else:
+                        nfoF.write("  <showtitle>Unknown Channel</showtitle>\n")
 
-                if 'description' in info and info['description']:
-                    nfoF.write(f"  <plot>{info['description']}</plot>\n")
-                else:
-                    nfoF.write("  <plot>Unknown Plot</plot>\n")
+                    if 'description' in info and info['description']:
+                        nfoF.write(f"  <plot>{info['description']}</plot>\n")
+                    else:
+                        nfoF.write("  <plot>Unknown Plot</plot>\n")
 
-                nfoF.write(f"  <runtime>{round(info['duration']/60.0)}</runtime>\n")
-                nfoF.write(f"  <thumb>{info['thumbnail']}</thumb>\n")
-                nfoF.write(f"  <videourl>{url}</videourl>\n")
-                # upload date is a dumb datestring eg 20200929 = 2020-09-29
-                nfoF.write(f"  <aired>{info['upload_date'][:4]}-{info['upload_date'][4:6]}-{info['upload_date'][6:]}</aired>\n")
+                    nfoF.write(f"  <runtime>{round(info['duration']/60.0)}</runtime>\n")
+                    nfoF.write(f"  <thumb>{info['thumbnail']}</thumb>\n")
+                    nfoF.write(f"  <videourl>{url}</videourl>\n")
+                    # upload date is a dumb datestring eg 20200929 = 2020-09-29
+                    nfoF.write(f"  <aired>{info['upload_date'][:4]}-"
+                               "{info['upload_date'][4:6]}-"
+                               "{info['upload_date'][6:]}</aired>\n")
 
-                nfoF.write("</musicvideo>\n")
+                    nfoF.write("</musicvideo>\n")
 
         # Swap out sys.stdout as ydl's output so we can capture it
         ydl._screen_file = output
@@ -229,8 +233,8 @@ def twldownload(url, request_options, output, job_id):
     myMarks = r.json()['marks']
 
     ydl_opts = ChainMap(os.environ, app_defaults)
-    root_dir = Path(ydl_opts['YDL_OUTPUT_TEMPLATE']).parent
-    with open(os.path.join(root_dir, '.twl.json'), 'w') as filehandle:
+    output_dir = Path(ydl_opts['YDL_OUTPUT_TEMPLATE']).parent
+    with open(os.path.join(output_dir, '.twl.json'), 'w') as filehandle:
         json.dump(myMarks, filehandle)
 
     downloadQueueAdd = 0
@@ -251,8 +255,8 @@ def twldownload(url, request_options, output, job_id):
 
         if (myMarks[i]['Mark']['watched']) or (myMarks[i]['Mark']['delflag']):
             # it's been marked as watched, delete the local copy
-            for filename in glob.glob(os.path.join(root_dir, f"*{mmeta['video_id']}*")):
-                # TODO we could remove more intellegently here
+            for filename in glob.glob(os.path.join(output_dir, f"*{mmeta['video_id']}*")):
+                # TODO we could remove more intellegently/selectively here ^
                 os.remove(filename)
                 removedFiles += 1
             continue
@@ -270,7 +274,7 @@ def twldownload(url, request_options, output, job_id):
         # TODO: clean Kodi library
         pass
 
-    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, removedFiles {removedFiles}"
+    return f"Processed {len(myMarks)} Marks, Queued {downloadQueueAdd}, removed {removedFiles} vids/nfos"
 
 
 def resume_pending():
