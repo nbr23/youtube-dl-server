@@ -113,7 +113,7 @@ def ydl_update():
 
 @app.route("/api/twl/download", method="GET")
 def twl_download():
-    job = Job("ToWatchList Update", Job.PENDING, "", JobType.TWL_DOWNLOAD, None, None)
+    job = Job("ToWatchList Update", Job.PENDING, "", JobType.TWL_DOWNLOAD, request.query.TWL_LOOKBACK_TIME_STRING or None, None)
     jobshandler.put((Actions.INSERT, job))
     return {"success": True}
 
