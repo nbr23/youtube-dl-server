@@ -16,4 +16,6 @@ app_defaults = {
     'YDL_RAW_OPTIONS': {
         'ignoreerrors': True
         },
+    # relative English string will be parsed into a timedelata from now by PHP on the server side
+    'TWL_LOOKBACK_TIME_STRING': '-3days',
 }
