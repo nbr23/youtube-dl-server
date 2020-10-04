@@ -182,6 +182,10 @@ function ydl_update(){
   $.get("api/youtube-dl/update");
 }
 
+function twl_download(){
+  $.get("api/twl/download");
+}
+
 function hide_logs_detail(){
   $('td:nth-child(5),th:nth-child(5)').hide();
 }
