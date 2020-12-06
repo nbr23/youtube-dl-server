@@ -113,7 +113,7 @@ def fetch_metadata(url):
     stdout = io.StringIO()
     stderr = io.StringIO()
     info = None
-    with ydl_module.YoutubeDL({'extract_flat': 'in_playlist'}) as ydl:
+    with ydl_module.YoutubeDL({'extract_flat': 'in_playlist', 'cookiefile': app_config.get('ydl_options',{}).get('cookies','../cookies.txt')}) as ydl:
         ydl.params['extract_flat'] = 'in_playlist'
         return ydl.extract_info(url, download=False)
 
