@@ -12,6 +12,10 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v2
+        with:
+        # Repository name with owner. For example, actions/checkout
+        # Default: ${{ github.repository }}
+          repository: 'nbr23/youtube-dl-server'
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v1
