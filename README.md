@@ -59,6 +59,12 @@ In the addons store add the repository (https://github.com/unofficial-skills/add
 
 Once the addon repository has been added, you should be able to install (YouTube Dl Server) from the Unofficial-skills section.
 
+
+### Windows 10
+
+Check out the release tab for windows builds.
+
+
 ## Configuration
 
 Configuration is done through the config.yml file at the root of the project.
