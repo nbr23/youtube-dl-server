@@ -5,13 +5,13 @@
     <div class="flex-grow-1"></div>
     <div class="jumbotron bg-transparent flex-grow-1">
       <h1 class="display-4">youtube-dl</h1>
-      <p class="lead">Enter a video url to download the video to the server. Url can be to YouTube or <a
+      <p class="lead">Enter a video URL to download the video to the server. URL can be to YouTube or <a
           class="text-info" href="#" onclick="extractors_show()">any
           other supported site</a>. The server will automatically download the highest quality version available.</p>
       <div>
         <div class="input-group">
-          <input name="url" type="url" class="form-control" placeholder="URL" aria-label="URL"
-            aria-describedby="button-submit" id="url" autofocus/>
+          <input name="url" type="url" class="form-control" placeholder="Video-URL" aria-label="URL"
+            aria-describedby="button-submit" id="url" autocomplete="off" autofocus/>
           <select class="custom-select" name="format" id="format">
             {% for category in ydl_formats %}
             <optgroup label="{{ category }}">
