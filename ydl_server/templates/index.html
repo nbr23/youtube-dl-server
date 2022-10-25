@@ -12,6 +12,9 @@
         <div class="input-group">
           <input name="url" type="url" class="form-control" placeholder="Video-URL" aria-label="URL"
             aria-describedby="button-submit" id="url" autocomplete="off" autofocus/>
+          <button class="btn btn-primary" id="button-paste">
+            <i class="fa-solid fa-paste"></i>
+          </button>
           <select class="custom-select" name="format" id="format">
             {% for category in ydl_formats %}
             <optgroup label="{{ category }}">
