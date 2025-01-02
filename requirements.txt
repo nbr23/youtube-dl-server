@@ -1,7 +1,7 @@
 starlette==0.41.3
 uvicorn==0.32.0
 aiofiles==24.1.0
-Jinja2==3.1.4
+Jinja2==3.1.5
 PyYAML==6.0.2
 youtube-dl==2021.12.17
 yt-dlp[default]==2024.12.23
