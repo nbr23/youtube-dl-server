@@ -73,7 +73,6 @@ class JobsHandler:
             return self.thread.join()
 
     def get_downloads(self, show_logs=False, status=None):
-        downloads = self._fetch_all_downloads(show_logs)
-        if status:
-            downloads = [job for job in downloads if job.get("status") == status]  # filtering by status
+        # Pass the status parameter to the DB method for filtering.
+        downloads = self.db._fetch_all_downloads(show_logs, status)  # assuming self.db is an instance of JobsDB
         return downloads

@@ -314,7 +314,7 @@ class JobsDB:
                 jobs
             WHERE id = ?;
             """,
-            (job_id,),
+            (job_id, ),
         )
         row = cursor.fetchone()
         if not row:
@@ -447,3 +447,19 @@ class JobsDB:
                 }
             )
         return rows
+
+    def _fetch_all_downloads(self, show_logs=False, status=None):
+        query = "SELECT * FROM jobs"
+        conditions = []
+        params = []
+
+        if status:
+            conditions.append("LOWER(status) = ?")
+            params.append(status.lower())
+        # ...existing conditions (e.g., handling show_logs)...
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY last_update DESC"
+
+        # ...existing code to execute the query using params...
+        # e.g., cursor.execute(query, params)--fetch and return results...
