@@ -71,3 +71,9 @@ class JobsHandler:
     def join(self):
         if self.thread is not None:
             return self.thread.join()
+
+    def get_downloads(self, show_logs=False, status=None):
+        downloads = self._fetch_all_downloads(show_logs)
+        if status:
+            downloads = [job for job in downloads if job.get("status") == status]  # filtering by status
+        return downloads
