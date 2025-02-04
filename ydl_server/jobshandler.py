@@ -9,6 +9,7 @@ class JobsHandler:
         self.thread = None
         self.done = False
         self.app_config = app_config
+        self.db = JobsDB(readonly=False)  # added DB instance for queries
 
     def start(self, dl_queue):
         self.thread = Thread(target=self.worker, args=(dl_queue,))

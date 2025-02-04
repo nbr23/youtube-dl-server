@@ -16,7 +16,7 @@ async def downloads_endpoint(request: Request):
     params = request.query_params
     show_logs = params.get("show_logs", "false").lower() == "true"
     status = params.get("status")  # added new status parameter
-    downloads = await request.app.state.jobshandler.get_downloads(show_logs=show_logs, status=status)
+    downloads = request.app.state.jobshandler.get_downloads(show_logs=show_logs, status=status)  # removed await
     return JSONResponse(downloads)
 
 routes = [

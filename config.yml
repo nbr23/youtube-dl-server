@@ -14,7 +14,7 @@ ydl_options:  # youtube-dl options
   output: '/youtube-dl/%(title)s [%(id)s].%(ext)s' # output directory template
   cache-dir: '/youtube-dl/.cache' # youtube-dl cache directory
   ignore-errors: True # instruct youtube-dl to skip errors
-  age-limit: 6 # minimal age requirement / parental control setting
+  age-limit: 98 # minimal age requirement / parental control setting
 
 profiles:
   podcast:
