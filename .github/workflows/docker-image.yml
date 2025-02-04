@@ -2,7 +2,7 @@ name: Update Docker Images
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master"]
     paths-ignore:
       - "archive/**"
       - "README.md"
