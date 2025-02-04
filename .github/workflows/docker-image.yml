@@ -120,7 +120,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ secrets.GH_USERNAME }}
-          password: ${{ secrets.GH_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Add step to sanitize branch name
       - name: Sanitize Branch Name
