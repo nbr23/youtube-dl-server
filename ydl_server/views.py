@@ -103,10 +103,9 @@ async def api_queue_size(request):
 
 async def api_logs(request):
     db = JobsDB(readonly=True)
-    # Fetch both query parameters and normalize the status for case insensitivity
     status = request.query_params.get("status", None)
     if status:
-        status = status.strip().lower().capitalize()  # e.g. "running" becomes "Running"
+        status = status.strip().lower().capitalize()
     show_logs = request.query_params.get("show_logs", "1")
 
     if show_logs.lower() in ["1", "true"]:
@@ -117,7 +116,7 @@ async def api_logs(request):
     else:
         response = db.get_jobs(
             app_config["ydl_server"].get("max_log_entries", 100),
-            status  # Pass the status even if logs are not shown
+            status
         )
     return JSONResponse(response)
 
