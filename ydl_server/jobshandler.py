@@ -9,7 +9,6 @@ class JobsHandler:
         self.thread = None
         self.done = False
         self.app_config = app_config
-        self.db = JobsDB(readonly=False)  # added DB instance for queries
 
     def start(self, dl_queue):
         self.thread = Thread(target=self.worker, args=(dl_queue,))
@@ -72,8 +71,3 @@ class JobsHandler:
     def join(self):
         if self.thread is not None:
             return self.thread.join()
-
-    def get_downloads(self, show_logs=False, status=None):
-        # Pass the status parameter to the DB method for filtering.
-        downloads = self.db._fetch_all_downloads(show_logs, status)  # assuming self.db is an instance of JobsDB
-        return downloads

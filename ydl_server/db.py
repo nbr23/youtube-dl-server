@@ -314,7 +314,7 @@ class JobsDB:
                 jobs
             WHERE id = ?;
             """,
-            (job_id, ),
+            (job_id,),
         )
         row = cursor.fetchone()
         if not row:
@@ -447,10 +447,3 @@ class JobsDB:
                 }
             )
         return rows
-
-    def _fetch_all_downloads(self, show_logs=False, status=None):
-        # Updated: use existing methods for correct field mapping
-        if show_logs:
-            return self.get_jobs_with_logs(limit=50, status=status)
-        else:
-            return self.get_jobs(limit=50, status=status)
