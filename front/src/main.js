@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import VueCookies from 'vue-cookies'
 import { createRouter, createWebHashHistory } from 'vue-router';
+import zhCN from './locales/zh-CN'
 
 import 'bootstrap/dist/css/bootstrap.css';
 
@@ -24,5 +25,16 @@ const router = createRouter({
 const app = createApp(App);
 app.use(router);
 app.use(VueCookies);
+
+// 添加全局 i18n 对象
+app.config.globalProperties.$t = function(key) {
+    const keys = key.split('.')
+    let value = zhCN
+    for (const k of keys) {
+        value = value[k]
+        if (!value) return key
+    }
+    return value
+}
 
 app.mount('#app');

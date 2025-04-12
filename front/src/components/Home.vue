@@ -89,7 +89,7 @@ export default {
     },
     async setDismissibleMessage(success, message) {
       message_list = "<div class=\"alert alert-dismissible alert-" + (success ? "success" : "danger") + " alert-dismissible fade show\" role=\"alert\">";
-      message_list += "<strong>" + (success ? "Success" : "Error") + "</strong>: " + message;
+      message_list += "<strong>" + (success ? this.$t('common.success') : this.$t('common.error')) + "</strong>: " + message;
       message_list += "<button type=\"button\" class=\"btn-close\" data-dismiss=\"alert\" aria-label=\"Close\" data-bs-dismiss=\"alert\"></button>";
       message_list += "</div>";
       message_list += this.messageList.innerHTML;
@@ -139,7 +139,7 @@ export default {
         })
         .catch((error) => {
           console.error(error);
-          this.setDismissibleMessage(false, 'Could not gather metadata for this video.');
+          this.setDismissibleMessage(false, this.$t('home.couldNotMetadata'));
         })
         .finally(() => {
           this.loading = false;
