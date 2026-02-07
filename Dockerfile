@@ -17,9 +17,9 @@ FROM python:alpine AS venv
 ENV PYTHON_ENV="/usr/local/python-env"
 
 RUN apk add --no-cache g++
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 COPY ./requirements.txt .
-RUN uv venv $PYTHON_ENV && \
+RUN pip install uv --break-system-packages && \
+    uv venv $PYTHON_ENV && \
     source $PYTHON_ENV/bin/activate && \
     uv pip install -r <(cat ./requirements.txt| grep -v youtube-dl | grep -v yt-dlp) && \
     uv pip install pip
