@@ -195,6 +195,8 @@ div.input-group > input.form-control::placeholder {
 
 .nav-link.router-link-active {
   color: #ffffff;
+  border-bottom: 2px solid #58a6ff;
+  padding-bottom: calc(0.5rem - 2px);
 }
 
 .stats-bar .badge {

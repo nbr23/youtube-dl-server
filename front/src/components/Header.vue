@@ -45,7 +45,7 @@ export default {
         <div class="collapse navbar-collapse" id="collapsingNavbar">
           <ul class="navbar-nav me-auto mb-2 mb-md-0">
             <li class="nav-item">
-              <router-link to="/" class="nav-link">Home</router-link>
+              <router-link to="/" class="nav-link" exact-active-class="router-link-active">Home</router-link>
             </li>
             <li class="nav-item">
               <router-link to="/logs" class="nav-link">Logs</router-link>
