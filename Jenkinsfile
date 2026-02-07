@@ -77,10 +77,4 @@ pipeline {
             }
         }
     }
-    post {
-        always {
-            sh 'docker buildx stop $BUILDX_BUILDER || true'
-            sh 'docker buildx rm $BUILDX_BUILDER || true'
-        }
-    }
 }
