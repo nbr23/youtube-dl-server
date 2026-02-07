@@ -130,7 +130,7 @@ export default {
             <a class="btn btn-outline-secondary dropdown-toggle" href="#" role="button" id="statusFilterDropDown" data-bs-toggle="dropdown" aria-expanded="false">
               Status {{ ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'ABORTED'].includes(status) ? `(${capitalize(status)})` : '(All)' }}
             </a>
-            <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="statusFilterDropDown">
+            <ul class="dropdown-menu" aria-labelledby="statusFilterDropDown">
               <li><router-link class="dropdown-item" to="/logs">All</router-link></li>
               <li><router-link class="dropdown-item" to="/logs?status=COMPLETED">Completed</router-link></li>
               <li><router-link class="dropdown-item" to="/logs?status=FAILED">Failed</router-link></li>
@@ -141,7 +141,7 @@ export default {
           </div>
         </div>
         <div class="table-responsive">
-          <table class="table table-striped table-hover table-dark">
+          <table class="table table-striped table-hover">
             <thead>
               <tr>
                 <th class="sortable-header" @click="toggleSort('last_update')">

@@ -122,7 +122,7 @@ export default {
         <h1 class="display-4 text-center">Finished Files</h1>
       </div>
       <div class="table-responsive">
-        <table class="table table-dark file-tree-table text-left">
+        <table class="table file-tree-table text-left">
           <thead>
             <tr>
               <th class="col-action">Action</th>

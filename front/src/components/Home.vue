@@ -272,7 +272,7 @@ export default {
             Advanced Options
           </button>
           <div class="collapse mt-2" id="advancedOptionsCollapse">
-            <div class="p-3 border rounded" style="background-color: #161b22; border-color: #30363d !important;">
+            <div class="p-3 border rounded advanced-options-panel">
               <div class="form-check mb-2">
                 <input class="form-check-input" type="checkbox" id="forceGenericExtractor" v-model="forceGenericExtractor">
                 <label class="form-check-label" for="forceGenericExtractor">

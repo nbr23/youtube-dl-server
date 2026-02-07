@@ -30,21 +30,21 @@ export default {
 }
 </script>
 <template>
-  <footer class="footer text-light text-center">
+  <footer class="footer text-center">
     <p class="text-muted">
-      Drag and Drop the Bookmarklet to your bookmark bar for easy access: <a id="bookmarklet" class="badge text-bg-dark"
+      Drag and Drop the Bookmarklet to your bookmark bar for easy access: <a id="bookmarklet" class="badge badge-subtle"
         href="">{{ server_info.ydl_module_name }}</a>
       <br />
       Powered by
-      <a target="_blank" rel="noopener noreferrer" class="text-light" :href="server_info.ydl_module_website">{{
+      <a target="_blank" rel="noopener noreferrer" class="footer-link" :href="server_info.ydl_module_website">{{
         server_info.ydl_module_name
       }}</a> version {{ server_info.ydl_module_version }}.
-      Code &amp; issues on <a target="_blank" rel="noopener noreferrer" class="text-light"
+      Code &amp; issues on <a target="_blank" rel="noopener noreferrer" class="footer-link"
         href="https://github.com/nbr23/youtube-dl-server">GitHub</a>.
       <span v-if="server_info.ydls_version != ''" data-toggle="tooltip" data-placement="top"
         :title="server_info.ydls_release_date">Rev <a target="_blank"
           :href="'https://github.com/nbr23/youtube-dl-server/commit/' + server_info.ydls_version"
-          class="badge text-bg-dark">{{
+          class="badge badge-subtle">{{
             server_info.ydls_version }}</a>
       </span>
     </p>
