@@ -1,6 +1,6 @@
 <script setup>
 import { get, isEmpty } from 'lodash'
-import { Modal } from 'bootstrap'
+import { Modal, Collapse } from 'bootstrap'
 import { getAPIUrl, saveConfig, getConfig } from '../utils';
 import { inject } from 'vue'
 </script>
@@ -21,26 +21,25 @@ export default {
     forceGenericExtractor: false,
     downloadName: '',
     showAdvancedOptions: false,
+    toasts: [],
+    advancedCollapse: null,
   }),
   mounted() {
     this.extractorsModal = new Modal('#extractorsModal');
     this.metadataModal = new Modal('#metadataModal');
+    this.advancedCollapse = new Collapse('#advancedOptionsCollapse', { toggle: false });
     this.urlBox = document.getElementById('url');
     this.downloadNameBox = document.getElementById('downloadName');
     this.selectedFormat = document.getElementById('format');
-    this.messageList = document.getElementById('message_list');
     this.fetchExtractors();
     this.fetchAvailableFormats();
     this.server_info = inject('serverInfo');
     this.urlBox.focus();
     this.showAdvancedOptions = getConfig('showAdvancedOptions', 'false') === 'true';
 
-    this.$nextTick(() => {
-      const details = document.getElementById('advancedOptionsDetails');
-      if (details) {
-        details.open = this.showAdvancedOptions;
-      }
-    });
+    if (this.showAdvancedOptions) {
+      this.$nextTick(() => this.advancedCollapse.show());
+    }
   },
 
   computed: {
@@ -85,27 +84,12 @@ export default {
         query: currentQuery
       });
     },
-    escapeHtml(string) {
-      return String(string).replace(/[&<>"'`=\/]/g, function (s) {
-        return {
-          '&': '&amp;',
-          '<': '&lt;',
-          '>': '&gt;',
-          '"': '&quot;',
-          "'": '&#39;',
-          '/': '&#x2F;',
-          '`': '&#x60;',
-          '=': '&#x3D;'
-        }[s];
-      });
-    },
-    async setDismissibleMessage(success, message) {
-      message_list = "<div class=\"alert alert-dismissible alert-" + (success ? "success" : "danger") + " alert-dismissible fade show\" role=\"alert\">";
-      message_list += "<strong>" + (success ? "Success" : "Error") + "</strong>: " + message;
-      message_list += "<button type=\"button\" class=\"btn-close\" data-dismiss=\"alert\" aria-label=\"Close\" data-bs-dismiss=\"alert\"></button>";
-      message_list += "</div>";
-      message_list += this.messageList.innerHTML;
-      this.messageList.innerHTML = message_list;
+    showToast(message, success) {
+      const id = Date.now() + Math.random();
+      this.toasts.push({ id, message, success });
+      setTimeout(() => {
+        this.toasts = this.toasts.filter(t => t.id !== id);
+      }, 5000);
     },
     showExtractorsModal() {
       this.extractorsModal.show();
@@ -153,7 +137,7 @@ export default {
         })
         .catch((error) => {
           console.error(error);
-          this.setDismissibleMessage(false, 'Could not gather metadata for this video.');
+          this.showToast('Could not gather metadata for this video.', false);
         })
         .finally(() => {
           this.loading = false;
@@ -186,12 +170,12 @@ export default {
           }
         })
         .then(data => {
-          this.setDismissibleMessage(data.success, data.success ? (this.escapeHtml(videoUrl) + " added to the queue.") : data.error);
+          this.showToast(data.success ? (videoUrl + " added to the queue.") : data.error, data.success);
           this.urlBox.value = '';
         })
         .catch((error) => {
           console.error(error);
-          this.setDismissibleMessage(false, 'Could not add the url to the queue.');
+          this.showToast('Could not add the url to the queue.', false);
         });
     },
     async submitVideo() {
@@ -221,166 +205,179 @@ export default {
           }
         })
         .then(data => {
-          this.setDismissibleMessage(data.success, data.success ? (this.escapeHtml(this.urlBox.value) + " added to the list.") : data.error);
+          this.showToast(data.success ? (this.urlBox.value + " added to the list.") : data.error, data.success);
           this.urlBox.value = '';
           this.downloadNameBox.value = '';
         })
         .catch((error) => {
           console.error(error);
-          this.setDismissibleMessage(false, 'Could not add the url to the queue.');
+          this.showToast('Could not add the url to the queue.', false);
         });
     },
-    toggleAdvancedOptions(event) {
-      this.showAdvancedOptions = event.target.open;
+    toggleAdvancedOptions() {
+      this.showAdvancedOptions = !this.showAdvancedOptions;
       saveConfig('showAdvancedOptions', this.showAdvancedOptions.toString());
+      if (this.showAdvancedOptions) {
+        this.advancedCollapse.show();
+      } else {
+        this.advancedCollapse.hide();
+      }
     }
   }
 }
 </script>
 <template>
   <div class="content">
-    <div class="container d-flex flex-column text-light text-center">
-      <div class="flex-grow-1"></div>
-      <div class="jumbotron bg-transparent flex-grow-1">
-        <h1 class="display-4">{{ server_info.ydl_module_name }}</h1>
-        <p class="lead">Enter a video URL to download the video to the server. URL can be to YouTube or <a
-            class="text-info" @click="showExtractorsModal">any
-            other supported site</a>. The server will automatically download the highest quality version available.</p>
-        <div>
-          <div class="input-group">
-            <input name="url" type="url" class="form-control" placeholder="URL" aria-label="URL"
-              @keydown.enter.exact.prevent="submitVideo()" id="url" autocomplete="off" autofocus />
-            <select class="custom-select" name="format" id="format" @change="updateUrlParameterFormat($event.target.value)">
-              <optgroup v-for="category, category_name in formats.ydl_formats" :label="category_name">
-                <option v-for="format_name, format in category" :value="format"
-                  :selected="default_format == format">
-                  {{ format_name }}
-                </option>
-              </optgroup>
-            </select>
-              <button class="btn btn-primary" id="button-submit" @click="submitVideo">
-                Download
-              </button>
-              <button class="btn btn-secondary" id="button-submit" @click="inspectVideo" :disabled="loading">
-                <span v-if="!loading">Inspect</span>
-                <span v-else>
-                  <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  <span class="visually-hidden">Loading...</span>
+    <div class="container text-center" style="padding-top: 4rem;">
+      <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id"
+          class="toast show toast-item" :class="toast.success ? 'toast-success' : 'toast-error'">
+          <span>{{ toast.success ? 'Success' : 'Error' }}: </span>{{ toast.message }}
+        </div>
+      </div>
+
+      <h1 class="display-4">{{ server_info.ydl_module_name }}</h1>
+      <p class="lead">Enter a video URL to download the video to the server. URL can be to YouTube or <a
+          href="#" @click.prevent="showExtractorsModal">any
+          other supported site</a>. The server will automatically download the highest quality version available.</p>
+      <div>
+        <div class="input-group mb-2">
+          <input name="url" type="url" class="form-control" placeholder="URL" aria-label="URL"
+            @keydown.enter.exact.prevent="submitVideo()" id="url" autocomplete="off" autofocus />
+          <select class="custom-select" name="format" id="format" @change="updateUrlParameterFormat($event.target.value)">
+            <optgroup v-for="category, category_name in formats.ydl_formats" :label="category_name">
+              <option v-for="format_name, format in category" :value="format"
+                :selected="default_format == format">
+                {{ format_name }}
+              </option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="d-flex gap-2 justify-content-center mb-3">
+          <button class="btn btn-primary" @click="submitVideo">
+            Download
+          </button>
+          <button class="btn btn-secondary" @click="inspectVideo" :disabled="loading">
+            <span v-if="!loading">Inspect</span>
+            <span v-else>
+              <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+              <span class="visually-hidden">Loading...</span>
+            </span>
+          </button>
+        </div>
+        <div class="mt-3 text-start">
+          <button class="btn btn-link text-decoration-none p-0 advanced-toggle" type="button"
+            @click="toggleAdvancedOptions">
+            <span class="advanced-toggle-icon" :class="{ open: showAdvancedOptions }">&#9656;</span>
+            Advanced Options
+          </button>
+          <div class="collapse mt-2" id="advancedOptionsCollapse">
+            <div class="p-3 border rounded" style="background-color: #161b22; border-color: #30363d !important;">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="forceGenericExtractor" v-model="forceGenericExtractor">
+                <label class="form-check-label" for="forceGenericExtractor">
+                  Force generic extractor
+                </label>
+              </div>
+              <div class="mb-2">
+                <label for="downloadName" class="form-label">Override video title:</label>
+                <input type="text" class="form-control" id="downloadName" v-model="downloadName" placeholder="Force a title for the video">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <br />
+
+      <div class="modal fade" id="extractorsModal" tabindex="-1" aria-labelledby="extractors_title"
+        aria-hidden="true">
+        <div class="modal-dialog" id='extractors_dialog'>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h1 class="modal-title fs-5">Available extractors</h1>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-left" id="extractors_body">
+              <input type="text" v-model="extractorsFilter" class="form-control mb-2" placeholder="Search">
+              <p>
+                <span id="extractors_items" class="list-group">
+                  <span class="list-group-item list-group-item-action" v-for="extractor in filteredExtractors">
+                    <b>{{ extractor }}</b><br />
+                  </span>
                 </span>
+              </p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal fade" id="metadataModal" role="dialog" aria-hidden="true" tabindex="-1"
+        aria-labelledby="metadata_title" style="text-align: left">
+        <div class="modal-dialog modal-lg" id='md_dialog' role="document">
+          <div class="modal-content" v-if="metadata_list">
+            <div class="modal-header">
+              <h5 class="modal-title" id="metadata_title">{{ metadata_list && metadata_list.length === 1 ?
+                get(metadata_list[0], 'title')
+                :
+                `Multiple Metadata sets (${metadata_list.length})` }}
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
               </button>
-          </div>
-          <div class="mt-3">
-            <details class="text-start" id="advancedOptionsDetails" @toggle="toggleAdvancedOptions">
-              <summary class="text-info" style="cursor: pointer; user-select: none;">Advanced Options</summary>
-              <div class="mt-2 p-3 border rounded bg-dark">
-                <div class="form-check mb-2">
-                  <input class="form-check-input" type="checkbox" id="forceGenericExtractor" v-model="forceGenericExtractor">
-                  <label class="form-check-label" for="forceGenericExtractor">
-                    Force generic extractor
-                  </label>
-                </div>
-                <div class="mb-2">
-                  <label for="downloadName" class="form-label text-light">Override video title:</label>
-                  <input type="text" class="form-control" id="downloadName" v-model="downloadName" placeholder="Force a title for the video">
-                </div>
-              </div>
-            </details>
-          </div>
-        </div>
-        <br />
-
-        <div class="modal fade text-dark" id="extractorsModal" tabindex="-1" aria-labelledby="extractors_title"
-          aria-hidden="true">
-          <div class="modal-dialog" id='extractors_dialog'>
-            <div class="modal-content bg-light">
-              <div class="modal-header">
-                <h1 class="modal-title fs-5">Available extractors</h1>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body text-left" id="extractors_body">
-                <input type="text" v-model="extractorsFilter" class="form-control mb-2" placeholder="Search">
-                <p>
-                  <span id="extractors_items" class="list-group">
-                    <span class="list-group-item list-group-item-action" v-for="extractor in filteredExtractors">
-                      <b>{{ extractor }}</b><br />
-                    </span>
+            </div>
+            <div class="modal-body text-left" id="metadata_body">
+              <p v-for="metadata in metadata_list">
+                <span style="text-align: center">
+                  <span>Title: <b>{{ get(metadata, 'title') }}</b><br /></span>
+                  <span v-if="get(metadata, 'uploader')">Uploader: <b>{{ get(metadata, 'uploader')
+                  }}</b><br /></span>
+                  Url: <b>
+                    <a :href="get(metadata, 'webpage_url')" id="md_webpage_url" target="_blank">{{ get(metadata,
+                      'webpage_url')
+                    }}</a>
+                  </b>
+                </span>
+                <br />
+                <br />
+                <b v-if="get(metadata, '_type', '') === 'playlist'">Playlist</b>
+                <b v-else>Available formats:</b>
+                <br />
+                <br />
+                <span class="list-group" v-if="get(metadata, '_type', '') === 'playlist'">
+                  <span v-for="entry in get(metadata, 'entries', [])" class="list-group-item list-group-item-action">
+                    <span class="badge bg-success" role="button" @click="() => {queueVideo(entry.url, {format: selectedFormat.value})}">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="var(--bs-white)" class="bi bi-download" viewBox="0 0 16 16">
+                        <path
+                          d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                        <path
+                          d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                      </svg> Queue</span>&nbsp;
+                    <a target="_blank" :href=entry.url>{{ entry.title }}</a>
                   </span>
-                </p>
-              </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              </div>
+                  <br />
+                </span>
+                <span class="list-group" v-else>
+                  <span v-for="format in get(metadata, 'formats', [])" class="list-group-item list-group-item-action">
+                    <span class="badge bg-success" role="button" @click="() => {queueVideo(get(metadata, 'webpage_url'),
+                      getParamsFromSelection(format)
+                      )}">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="var(--bs-white)" class="bi bi-download" viewBox="0 0 16 16">
+                        <path
+                          d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                        <path
+                          d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                      </svg> Queue</span>&nbsp;
+                    <a target="_blank" :href=format.url>{{ [format.ext,format.format, prettySize(format.filesize)].filter(x => !isEmpty(x)).join(' - ') }}</a>
+                </span>
+                </span>
+              </p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
           </div>
-        </div>
-
-        <div class="modal fade text-dark" id="metadataModal" role="dialog" aria-hidden="true" tabindex="-1"
-          aria-labelledby="metadata_title" style="text-align: left">
-          <div class="modal-dialog modal-lg" id='md_dialog' role="document">
-            <div class="modal-content bg-light" v-if="metadata_list">
-              <div class="modal-header">
-                <h5 class="modal-title" id="metadata_title">{{ metadata_list && metadata_list.length === 1 ?
-                  get(metadata_list[0], 'title')
-                  :
-                  `Multiple Metadata sets (${metadata_list.length})` }}
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
-                </button>
-              </div>
-              <div class="modal-body text-left" id="metadata_body">
-                <p v-for="metadata in metadata_list">
-                  <span style="text-align: center">
-                    <span>Title: <b>{{ get(metadata, 'title') }}</b><br /></span>
-                    <span v-if="get(metadata, 'uploader')">Uploader: <b>{{ get(metadata, 'uploader')
-                    }}</b><br /></span>
-                    Url: <b>
-                      <a :href="get(metadata, 'webpage_url')" id="md_webpage_url" target="_blank">{{ get(metadata,
-                        'webpage_url')
-                      }}</a>
-                    </b>
-                  </span>
-                  <br />
-                  <br />
-                  <b v-if="get(metadata, '_type', '') === 'playlist'">Playlist</b>
-                  <b v-else>Available formats:</b>
-                  <br />
-                  <br />
-                  <span class="list-group" v-if="get(metadata, '_type', '') === 'playlist'">
-                    <span v-for="entry in get(metadata, 'entries', [])" class="list-group-item list-group-item-action">
-                      <span class="badge bg-success" role="button" @click="() => {queueVideo(entry.url, {format: selectedFormat.value})}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="var(--bs-white)" class="bi bi-download" viewBox="0 0 16 16">
-                          <path
-                            d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                          <path
-                            d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
-                        </svg> Queue</span>&nbsp;
-                      <a target="_blank" :href=entry.url>{{ entry.title }}</a>
-                    </span>
-                    <br />
-                  </span>
-                  <span class="list-group" v-else>
-                    <span v-for="format in get(metadata, 'formats', [])" class="list-group-item list-group-item-action">
-                      <span class="badge bg-success" role="button" @click="() => {queueVideo(get(metadata, 'webpage_url'),
-                        getParamsFromSelection(format)
-                        )}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="var(--bs-white)" class="bi bi-download" viewBox="0 0 16 16">
-                          <path
-                            d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                          <path
-                            d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
-                        </svg> Queue</span>&nbsp;
-                      <a target="_blank" :href=format.url>{{ [format.ext,format.format, prettySize(format.filesize)].filter(x => !isEmpty(x)).join(' - ') }}</a>
-                  </span>
-                  </span>
-                </p>
-              </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="message_list">
         </div>
       </div>
     </div>

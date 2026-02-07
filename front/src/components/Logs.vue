@@ -10,7 +10,7 @@ export default {
     showLogDetails: true,
     mounted: false,
     statusToTrClass: {
-      Pending: 'badge',
+      Pending: 'badge bg-secondary',
       Failed: 'badge bg-danger',
       Aborted: 'badge bg-warning',
       Running: 'badge bg-info',
@@ -52,6 +52,14 @@ export default {
     }
   },
   methods: {
+    toggleSort(field) {
+      if (this.sortBy === field) {
+        this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortBy = field;
+        this.sortOrder = 'desc';
+      }
+    },
     getFormatBadgeClass(format) {
       return format?.startsWith('profile/') ? 'badge bg-warning me-1' : 'badge bg-success me-1'
     },
@@ -106,83 +114,79 @@ export default {
 </script>
 <template>
   <div class="content">
-    <div class="container-fluid d-flex flex-column text-light text-center">
+    <div class="container-fluid d-flex flex-column text-center">
       <div class="container-fluid flex-grow-1">
         <h1 class="display-4">Jobs History</h1>
-        <button v-if="showLogDetails" class="btn btn-dark"
-          @click="showLogDetails = false; saveConfig('showLogDetails', false)">Hide logs</button>
-        <button v-else class="btn btn-dark" @click="showLogDetails = true; saveConfig('showLogDetails', true)">Show
-          logs</button>
-        <button class="btn btn-dark" @click="fetchLogs">Refresh</button>
-        <button class="btn btn-dark" @click="purgeLogs">Purge logs</button>
-          <a class="btn btn-dark dropdown-toggle" href="#" role="button" id="statusFilterDropDown" data-bs-toggle="dropdown" aria-expanded="false">
-            Status {{ ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'ABORTED'].includes(status) ? `(${capitalize(status)})` : '(All)' }}
-          </a>
-          <ul class="dropdown-menu" aria-labelledby="statusFilterDropDown">
-            <li><router-link class="dropdown-item" to="/logs">All</router-link></li>
-            <li><router-link class="dropdown-item" to="/logs?status=COMPLETED">Completed</router-link></li>
-            <li><router-link class="dropdown-item" to="/logs?status=FAILED">Failed</router-link></li>
-            <li><router-link class="dropdown-item" to="/logs?status=PENDING">Pending</router-link></li>
-            <li><router-link class="dropdown-item" to="/logs?status=RUNNING">Running</router-link></li>
-            <li><router-link class="dropdown-item" to="/logs?status=ABORTED">Aborted</router-link></li>
-          </ul>
-        <br />
+        <div class="d-flex justify-content-center gap-2 flex-wrap mb-3">
+          <div class="btn-group" role="toolbar">
+            <button v-if="showLogDetails" class="btn btn-outline-secondary"
+              @click="showLogDetails = false; saveConfig('showLogDetails', false)">Hide logs</button>
+            <button v-else class="btn btn-outline-secondary"
+              @click="showLogDetails = true; saveConfig('showLogDetails', true)">Show logs</button>
+            <button class="btn btn-outline-secondary" @click="fetchLogs">Refresh</button>
+            <button class="btn btn-outline-danger" @click="purgeLogs">Purge</button>
+          </div>
+          <div class="dropdown">
+            <a class="btn btn-outline-secondary dropdown-toggle" href="#" role="button" id="statusFilterDropDown" data-bs-toggle="dropdown" aria-expanded="false">
+              Status {{ ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'ABORTED'].includes(status) ? `(${capitalize(status)})` : '(All)' }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="statusFilterDropDown">
+              <li><router-link class="dropdown-item" to="/logs">All</router-link></li>
+              <li><router-link class="dropdown-item" to="/logs?status=COMPLETED">Completed</router-link></li>
+              <li><router-link class="dropdown-item" to="/logs?status=FAILED">Failed</router-link></li>
+              <li><router-link class="dropdown-item" to="/logs?status=PENDING">Pending</router-link></li>
+              <li><router-link class="dropdown-item" to="/logs?status=RUNNING">Running</router-link></li>
+              <li><router-link class="dropdown-item" to="/logs?status=ABORTED">Aborted</router-link></li>
+            </ul>
+          </div>
+        </div>
         <div class="table-responsive">
-          <table class="col-md-16 table table-stripped table-md table-dark">
+          <table class="table table-striped table-hover table-dark">
             <thead>
               <tr>
-                <th class="col-md-2">Last update
-                  <a :class="sortOrder === 'asc' && sortBy === 'last_update' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'last_update'; sortOrder = 'asc'">&uarr;</a>
-                  <a :class="sortOrder === 'desc' && sortBy === 'last_update' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'last_update'; sortOrder = 'desc'">&darr;</a>
+                <th class="sortable-header" @click="toggleSort('last_update')">
+                  Last update
+                  <svg v-if="sortBy === 'last_update'" class="sort-chevron" :class="{ flipped: sortOrder === 'asc' }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                  </svg>
                 </th>
-                <th class="col-md-2">Name
-                  <a :class="sortOrder === 'asc' && sortBy === 'name' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#" @click.prevent="sortBy = 'name'; sortOrder = 'asc'">&uarr;</a>
-                  <a :class="sortOrder === 'desc' && sortBy === 'name' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'name'; sortOrder = 'desc'">&darr;</a>
+                <th class="sortable-header" @click="toggleSort('name')">
+                  Name
+                  <svg v-if="sortBy === 'name'" class="sort-chevron" :class="{ flipped: sortOrder === 'asc' }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                  </svg>
                 </th>
-                <th class="col-md-1">Format
-                  <a :class="sortOrder === 'asc' && sortBy === 'format' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'format'; sortOrder = 'asc'">&uarr;</a>
-                  <a :class="sortOrder === 'desc' && sortBy === 'format' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'format'; sortOrder = 'desc'">&darr;</a>
+                <th class="sortable-header" @click="toggleSort('format')">
+                  Format
+                  <svg v-if="sortBy === 'format'" class="sort-chevron" :class="{ flipped: sortOrder === 'asc' }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                  </svg>
                 </th>
-                <th class="col-md-1">Status
-                  <a :class="sortOrder === 'asc' && sortBy === 'status' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'status'; sortOrder = 'asc'">&uarr;</a>
-                  <a :class="sortOrder === 'desc' && sortBy === 'status' ? 'text-light' : 'text-muted'"
-                    style="text-decoration: none;" href="#"
-                    @click.prevent="sortBy = 'status'; sortOrder = 'desc'">&darr;</a>
+                <th class="sortable-header" @click="toggleSort('status')">
+                  Status
+                  <svg v-if="sortBy === 'status'" class="sort-chevron" :class="{ flipped: sortOrder === 'asc' }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                  </svg>
                 </th>
-                <th v-if="showLogDetails" class="col-md-6">Log</th>
+                <th v-if="showLogDetails">Log</th>
               </tr>
             </thead>
             <tbody id="job_logs">
               <tr v-if="logs.length === 0">
-                <td :colspan="showLogDetails ? 6 : 4">No {{ status == null ? '' : status.toLowerCase() + ' ' }}jobs found</td>
+                <td :colspan="showLogDetails ? 5 : 4">No {{ status == null ? '' : status.toLowerCase() + ' ' }}jobs found</td>
               </tr>
-              <tr @click="showCurrentLogDetails(log.id)" v-for="log in orderedLogs" :key="log.id">
-                <td >{{ log.last_update }}</td>
+              <tr @click="showCurrentLogDetails(log.id)" v-for="log in orderedLogs" :key="log.id" style="cursor: pointer;">
+                <td>{{ log.last_update }}</td>
                 <td>{{ log.name }}</td>
                 <td><span v-for='fmt in log.format?.split(",")' :class=getFormatBadgeClass(fmt)>{{ fmt }}</span></td>
                 <td v-if="log.status == 'Failed' || log.status == 'Aborted'">
-                  <span :class=statusToTrClass[log.status] @click.stop="retryDownload(log.id)">
-                    <a role="button" aria-label="Retry">{{
-                      log.status }} / Retry</a>
+                  <span :class=statusToTrClass[log.status] class="status-action" @click.stop="retryDownload(log.id)">
+                    {{ log.status }} / Retry
                   </span>
                 </td>
                 <td v-else-if="log.status == 'Running' || log.status == 'Pending'">
-                  <span :class=statusToTrClass[log.status] @click.stop="abortDownload(log.id)">
-                    {{ log.status }} <a role="button" aria-label="Abort"
-                     >&times;</a>
+                  <span :class=statusToTrClass[log.status] class="status-action" @click.stop="abortDownload(log.id)">
+                    {{ log.status }} &times;
                   </span>
                 </td>
                 <td v-else>
@@ -190,13 +194,13 @@ export default {
                     {{ log.status }}
                   </span>
                 </td>
-                <td style="text-align: left;" v-if="showLogDetails">{{ log.log }}</td>
+                <td class="text-start" v-if="showLogDetails">{{ log.log }}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <div class="modal fade text-dark" id="currentLogDetailsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal fade" id="currentLogDetailsModal" tabindex="-1" aria-hidden="true">
           <div class="modal-dialog modal-xl" id='currentLogDetailDialog' style="text-align: left">
             <div class="modal-content">
               <div class="modal-header">
@@ -204,10 +208,8 @@ export default {
                 <h1 class="modal-title fs-5" id="currentLogDetailId">{{ getLogById?.name || '' }}</h1>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
-              <div class="modal-body text-left" id="currentLogDetailContent">
-                <p v-if="currentLogDetailId" style="white-space: pre-wrap">
-                  {{ getLogById?.log }}
-                </p>
+              <div class="modal-body" id="currentLogDetailContent">
+                <pre v-if="currentLogDetailId" class="log-output">{{ getLogById?.log }}</pre>
                 <div v-else class="spinner-border" role="status">
                   <span class="visually-hidden">Loading...</span>
                 </div>

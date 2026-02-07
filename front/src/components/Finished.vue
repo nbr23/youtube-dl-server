@@ -102,23 +102,18 @@ export default {
         return item
       });
     },
+    sortClass(field, direction) {
+      return ['sort-arrow', { active: this.sortBy === field && this.sortOrder === direction }];
+    },
   }
 }
 </script>
 <template>
   <div class="content">
-    <div class="container text-light">
-      <div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999;">
-        <div v-for="toast in toasts" :key="toast.id" class="toast show" :style="{
-          minWidth: '250px',
-          background: toast.success ? '#198754' : '#dc3545',
-          color: 'white',
-          marginBottom: '10px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-          borderRadius: '6px',
-          padding: '16px',
-          fontWeight: 'bold',
-        }">
+    <div class="container">
+      <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id"
+          class="toast show toast-item" :class="toast.success ? 'toast-success' : 'toast-error'">
           <span>{{ toast.success ? 'Success' : 'Error' }}: </span>{{ toast.message }}
         </div>
       </div>
@@ -126,38 +121,26 @@ export default {
       <div class="row">
         <h1 class="display-4 text-center">Finished Files</h1>
       </div>
-      <div class="row">
-        <table class="col-md-16 table table-stripped table-md table-dark text-left">
+      <div class="table-responsive">
+        <table class="table table-dark file-tree-table text-left">
           <thead>
-            <tr class="d-flex">
-              <th class="col-1">Action</th>
-              <th class="col-6">Name
-                <a :class="sortOrder === 'asc' && sortBy === 'name' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#" @click.prevent="sortBy = 'name'; sortOrder = 'asc'">&uarr;</a>
-                <a :class="sortOrder === 'desc' && sortBy === 'name' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#" @click.prevent="sortBy = 'name'; sortOrder = 'desc'">&darr;</a>
+            <tr>
+              <th class="col-action">Action</th>
+              <th>Name
+                <a :class="sortClass('name', 'asc')" href="#" @click.prevent="sortBy = 'name'; sortOrder = 'asc'">&uarr;</a>
+                <a :class="sortClass('name', 'desc')" href="#" @click.prevent="sortBy = 'name'; sortOrder = 'desc'">&darr;</a>
               </th>
-              <th class="col-1">Size
-                <a :class="sortOrder === 'asc' && sortBy === 'size' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#" @click.prevent="sortBy = 'size'; sortOrder = 'asc'">&uarr;</a>
-                <a :class="sortOrder === 'desc' && sortBy === 'size' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#" @click.prevent="sortBy = 'size'; sortOrder = 'desc'">&darr;</a>
+              <th class="col-size">Size
+                <a :class="sortClass('size', 'asc')" href="#" @click.prevent="sortBy = 'size'; sortOrder = 'asc'">&uarr;</a>
+                <a :class="sortClass('size', 'desc')" href="#" @click.prevent="sortBy = 'size'; sortOrder = 'desc'">&darr;</a>
               </th>
-              <th class="col-2">Upload Date
-                <a :class="sortOrder === 'asc' && sortBy === 'modified' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#"
-                  @click.prevent="sortBy = 'modified'; sortOrder = 'asc'">&uarr;</a>
-                <a :class="sortOrder === 'desc' && sortBy === 'modified' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#"
-                  @click.prevent="sortBy = 'modified'; sortOrder = 'desc'">&darr;</a>
+              <th class="col-date">Upload Date
+                <a :class="sortClass('modified', 'asc')" href="#" @click.prevent="sortBy = 'modified'; sortOrder = 'asc'">&uarr;</a>
+                <a :class="sortClass('modified', 'desc')" href="#" @click.prevent="sortBy = 'modified'; sortOrder = 'desc'">&darr;</a>
               </th>
-              <th class="col-2">Fetch Date
-                <a :class="sortOrder === 'asc' && sortBy === 'created' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#"
-                  @click.prevent="sortBy = 'created'; sortOrder = 'asc'">&uarr;</a>
-                <a :class="sortOrder === 'desc' && sortBy === 'created' ? 'text-light' : 'text-muted'"
-                  style="text-decoration: none;" href="#"
-                  @click.prevent="sortBy = 'created'; sortOrder = 'desc'">&darr;</a>
+              <th class="col-date">Fetch Date
+                <a :class="sortClass('created', 'asc')" href="#" @click.prevent="sortBy = 'created'; sortOrder = 'asc'">&uarr;</a>
+                <a :class="sortClass('created', 'desc')" href="#" @click.prevent="sortBy = 'created'; sortOrder = 'desc'">&darr;</a>
               </th>
             </tr>
           </thead>
