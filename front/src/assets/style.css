@@ -481,7 +481,9 @@ div.input-group > input.form-control::placeholder {
 .table {
   --bs-table-color: var(--t-text);
   --bs-table-bg: transparent;
+  --bs-table-striped-color: var(--t-text);
   --bs-table-striped-bg: var(--t-table-striped-bg);
+  --bs-table-hover-color: var(--t-text);
   --bs-table-hover-bg: var(--t-table-hover-bg);
   border-color: var(--t-border);
 }
