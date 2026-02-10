@@ -110,7 +110,7 @@ export default {
 </script>
 <template>
   <div class="content">
-    <div class="container">
+    <div class="container-fluid">
       <div class="toast-container">
         <div v-for="toast in toasts" :key="toast.id"
           class="toast show toast-item" :class="toast.success ? 'toast-success' : 'toast-error'">

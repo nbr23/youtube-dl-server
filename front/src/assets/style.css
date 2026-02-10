@@ -243,7 +243,7 @@ nav {
 }
 
 .table-responsive table {
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .table-responsive td {
@@ -768,4 +768,38 @@ html[data-theme="light"] .navbar-toggler-icon {
 
 .footer-link:hover {
   color: var(--t-text);
+}
+
+@media (max-width: 768px) {
+  .display-4 {
+    font-size: 1.75rem;
+  }
+
+  .col-hide-mobile {
+    display: none;
+  }
+
+  .file-tree-table .col-date {
+    display: none;
+  }
+
+  .file-tree-table .col-size {
+    width: auto;
+  }
+
+  .file-tree-table .col-action {
+    width: auto;
+  }
+
+  .table-responsive td,
+  .table-responsive th {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.5rem;
+  }
+
+  .file-tree-table th,
+  .file-tree-table td {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.5rem;
+  }
 }

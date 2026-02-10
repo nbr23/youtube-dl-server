@@ -119,9 +119,9 @@ export default {
         <h1 class="display-4">Jobs History</h1>
         <div class="d-flex justify-content-center gap-2 flex-wrap mb-3">
           <div class="btn-group" role="toolbar">
-            <button v-if="showLogDetails" class="btn btn-outline-secondary"
+            <button v-if="showLogDetails" class="btn btn-outline-secondary col-hide-mobile"
               @click="showLogDetails = false; saveConfig('showLogDetails', false)">Hide logs</button>
-            <button v-else class="btn btn-outline-secondary"
+            <button v-else class="btn btn-outline-secondary col-hide-mobile"
               @click="showLogDetails = true; saveConfig('showLogDetails', true)">Show logs</button>
             <button class="btn btn-outline-secondary" @click="fetchLogs">Refresh</button>
             <button class="btn btn-outline-danger" @click="purgeLogs">Purge</button>
@@ -144,7 +144,7 @@ export default {
           <table class="table table-striped table-hover">
             <thead>
               <tr>
-                <th class="sortable-header" @click="toggleSort('last_update')">
+                <th class="sortable-header col-hide-mobile" @click="toggleSort('last_update')">
                   Last update
                   <svg v-if="sortBy === 'last_update'" class="sort-chevron" :class="{ flipped: sortOrder === 'asc' }" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
@@ -168,7 +168,7 @@ export default {
                     <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
                   </svg>
                 </th>
-                <th v-if="showLogDetails">Log</th>
+                <th class="col-hide-mobile" v-if="showLogDetails">Log</th>
               </tr>
             </thead>
             <tbody id="job_logs">
@@ -176,7 +176,7 @@ export default {
                 <td :colspan="showLogDetails ? 5 : 4">No {{ status == null ? '' : status.toLowerCase() + ' ' }}jobs found</td>
               </tr>
               <tr @click="showCurrentLogDetails(log.id)" v-for="log in orderedLogs" :key="log.id" style="cursor: pointer;">
-                <td>{{ log.last_update }}</td>
+                <td class="col-hide-mobile">{{ log.last_update }}</td>
                 <td>{{ log.name }}</td>
                 <td><span v-for='fmt in log.format?.split(",")' :class=getFormatBadgeClass(fmt)>{{ fmt }}</span></td>
                 <td v-if="log.status == 'Failed' || log.status == 'Aborted'">
@@ -194,7 +194,7 @@ export default {
                     {{ log.status }}
                   </span>
                 </td>
-                <td class="text-start" v-if="showLogDetails">{{ log.log }}</td>
+                <td class="text-start col-hide-mobile" v-if="showLogDetails">{{ log.log }}</td>
               </tr>
             </tbody>
           </table>
