@@ -177,7 +177,7 @@ export default {
               </tr>
               <tr @click="showCurrentLogDetails(log.id)" v-for="log in orderedLogs" :key="log.id" style="cursor: pointer;">
                 <td class="col-hide-mobile">{{ log.last_update }}</td>
-                <td>{{ log.name }}</td>
+                <td class="col-name">{{ log.name }}</td>
                 <td><span v-for='fmt in log.format?.split(",")' :class=getFormatBadgeClass(fmt)>{{ fmt }}</span></td>
                 <td v-if="log.status == 'Failed' || log.status == 'Aborted'">
                   <span :class=statusToTrClass[log.status] class="status-action" @click.stop="retryDownload(log.id)">

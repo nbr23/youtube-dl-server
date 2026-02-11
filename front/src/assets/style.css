@@ -771,6 +771,11 @@ html[data-theme="light"] .navbar-toggler-icon {
 }
 
 @media (max-width: 768px) {
+  .container-fluid {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
   .display-4 {
     font-size: 1.75rem;
   }
@@ -789,6 +794,13 @@ html[data-theme="light"] .navbar-toggler-icon {
 
   .file-tree-table .col-action {
     width: auto;
+  }
+
+  .col-name {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .table-responsive td,
