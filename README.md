@@ -49,6 +49,8 @@ This is an example service definition that could be put in `docker-compose.yml`.
     volumes:
       - $HOME/youtube-dl:/youtube-dl
       - ./config.yml:/app_config/config.yml:ro # Overwrite the container's config file with your own configuration
+    ports:
+      - 8080:8080
     restart: always
 ```
 
@@ -71,7 +73,22 @@ export YDL_CONFIG_PATH=/var/local/youtube-dl-server/
 
 In the above case, if `/var/local/youtube-dl-server/config.yml` does not exist, it will be created with the default options as well.
 
-The configuration file must contain at least the following variables:
+### ydl_server options
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `port` | `8080` | Port to listen on |
+| `host` | `0.0.0.0` | IP to bind to |
+| `metadata_db_path` | `/youtube-dl/.ydl-metadata.db` | Path to the SQLite job database |
+| `output_playlist` | `/youtube-dl/%(playlist_title)s [%(playlist_id)s]/%(title)s.%(ext)s` | Output template for playlists and multi-URL jobs |
+| `max_log_entries` | `100` | Maximum number of job history entries to keep |
+| `default_format` | `video/best` | Default format pre-selected in the UI |
+| `download_workers_count` | `2` | Number of parallel download worker threads |
+| `forwarded_allow_ips` | `None` | Comma-separated list of IPs to trust proxy headers from (passed to uvicorn) |
+| `proxy_headers` | `True` | Trust `X-Forwarded-Proto`, `X-Forwarded-For`, `X-Forwarded-Port` headers (passed to uvicorn) |
+| `debug` | `False` | Enable debug mode |
+
+Minimum required configuration:
 
 ```yaml
 ydl_server:
@@ -84,30 +101,29 @@ ydl_options:
   cache-dir: '/youtube-dl/.cache'
 ```
 
-### Extra options
+### ydl_options
 
-Additional youtube-dl parameters can be set in the `ydl_options` sections. To
-do this, simply add regular youtube-dl parameters, removing the leading `--`.
+Additional yt-dlp/youtube-dl parameters can be set in the `ydl_options` section. Add
+parameters by removing the leading `--` from the flag name.
 
-For example, to write subtitles in spanish, the youtube-dl command would be:
+For example, to write subtitles in spanish, the yt-dlp command would be:
 
-`youtube-dl --write-sub --sub-lang es URL`
+`yt-dlp --write-sub --sub-lang es URL`
 
-Which would translate to the following `ydl_options` in `config.yml`:
+Which translates to:
 
 ```yaml
 ydl_options:
-  output: '/tmp/youtube-dl/%(title)s [%(id)s].%(ext)s'
-  cache-dir: '/tmp/youtube-dl/.cache'
+  output: '/youtube-dl/%(title)s [%(id)s].%(ext)s'
+  cache-dir: '/youtube-dl/.cache'
   write-sub: True
   sub-lang: es
 ```
 
 ### Profiles
 
-You can also define profiles. They allow you to define configuration sets that can be selected in the UI.
-
-Sample:
+Profiles are named configuration sets selectable in the UI. Each profile can
+override any `ydl_options`.
 
 ```yaml
 profiles:
@@ -136,78 +152,198 @@ profiles:
 
 ## Python
 
-If you have python ^3.3.0 installed in your PATH you can simply run like this,
-providing optional environment variable overrides inline.
+Requires Python ^3.8.
 
-Install the python dependencies from `requirements.txt`:
+Install dependencies:
 
 ```shell
 pip install -r requirements.txt
 ```
 
-You can run
-[bootstrap.sh](https://github.com/nbr23/youtube-dl-server/blob/master/bootstrap.sh)
-to download the required front-end libraries (jquery, bootstrap).
+Build the frontend:
+
+```shell
+cd front && npm install && npm run build
+```
+
+Run the server:
 
 ```shell
 python3 -u ./youtube-dl-server.py
 ```
 
-To force a specific `youtube-dl` version/fork  (eg `yt-dlp`), use the
-variable `YOUTUBE_DL`:
+To force a specific yt-dlp/youtube-dl fork, set the `YOUTUBE_DL` environment variable:
 
 ```shell
 YOUTUBE_DL=yt-dlp python3 -u ./youtube-dl-server.py
 ```
 
+The following environment variables are used for version display in the UI:
+
+| Variable | Description |
+|----------|-------------|
+| `YOUTUBE_DL` | The yt-dlp/youtube-dl module to use (`yt-dlp`, `youtube-dl`) |
+| `YDLS_VERSION` | Version string shown in the server info endpoint |
+| `YDLS_RELEASE_DATE` | Release date string shown in the server info endpoint |
+
 ## Usage
 
-### Start a download remotely
+### Web UI
 
-Downloads can be triggered by supplying the `{{url}}` of the requested video
-through the Web UI or through the REST interface via curl, etc.
+Navigate to `http://{{host}}:8080/` and enter the URL to download.
 
-### HTML
+### REST API
 
-Just navigate to `http://{{host}}:8080/` and enter the requested `{{url}}`.
-
-### Curl
+#### Queue a download
 
 ```shell
-curl -X POST  -H 'Content-Type: application/json' --data-raw '{"url":"{{ URL }}","format":"video/best"}' http://{{host}}:8080/api/downloads
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"url": "{{URL}}", "format": "video/best"}' \
+  http://{{host}}:8080/api/downloads
 ```
 
-### Fetch
+Accepted body fields:
 
-```javascript
-fetch(`http://${host}:8080/api/downloads`, {
-  method: "POST",
-  body: new URLSearchParams({
-    url: url,
-    format: "bestvideo"
-  }),
-});
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | Single URL to download |
+| `urls` | array | Multiple URLs to download as one job |
+| `format` | string | Format string (see formats below) |
+| `profile` | string | Profile name from config |
+| `audio_format` | string | Audio format (e.g. `mp3`, `aac`) |
+| `force_generic_extractor` | bool | Force use of the generic extractor |
+| `extra_params` | object | Extra parameters; `title` key overrides the output filename |
+
+Available format values:
+
+| Value | Description |
+|-------|-------------|
+| `video/best` | Best video+audio (default) |
+| `video/bestvideo` | Best video quality |
+| `video/mp4` | MP4 |
+| `video/webm` | WebM |
+| `video/mkv` | Matroska |
+| `video/avi` | AVI |
+| `video/flv` | Flash Video |
+| `video/ogg` | Ogg |
+| `bestaudio/best` | Best audio |
+| `audio/mp3` | MP3 |
+| `audio/aac` | AAC |
+| `audio/flac` | FLAC |
+| `audio/m4a` | M4A |
+| `audio/opus` | Opus |
+| `audio/vorbis` | Vorbis |
+| `audio/wav` | WAV |
+
+#### List jobs
+
+```shell
+curl http://{{host}}:8080/api/downloads
+```
+
+Query parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `status` | Filter by status: `Running`, `Completed`, `Failed`, `Pending`, `Aborted` |
+| `show_logs` | Include log output in response, `1` (default) or `0` |
+
+#### Queue statistics
+
+```shell
+curl http://{{host}}:8080/api/downloads/stats
+```
+
+#### Clean old job entries
+
+Removes completed and failed entries beyond `max_log_entries`:
+
+```shell
+curl -X POST http://{{host}}:8080/api/downloads/clean
+```
+
+#### Purge all job history
+
+```shell
+curl -X DELETE http://{{host}}:8080/api/downloads
+```
+
+#### Fetch metadata without downloading
+
+```shell
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"url": "{{URL}}"}' \
+  http://{{host}}:8080/api/metadata
+```
+
+#### Stop a job
+
+```shell
+curl -X POST http://{{host}}:8080/api/jobs/{{job_id}}/stop
+```
+
+#### Retry a job
+
+```shell
+curl -X POST http://{{host}}:8080/api/jobs/{{job_id}}/retry
+```
+
+#### Delete a job entry
+
+```shell
+curl -X DELETE http://{{host}}:8080/api/jobs/{{job_id}}
+```
+
+#### List downloaded files
+
+```shell
+curl http://{{host}}:8080/api/finished
+```
+
+#### Delete a downloaded file
+
+```shell
+curl -X DELETE http://{{host}}:8080/api/finished/{{filename}}
+```
+
+#### Server info
+
+```shell
+curl http://{{host}}:8080/api/info
+```
+
+#### Available formats
+
+```shell
+curl http://{{host}}:8080/api/formats
+```
+
+#### Supported extractors
+
+```shell
+curl http://{{host}}:8080/api/extractors
 ```
 
 ### Bookmarklet
 
-Add the following bookmarklet to your bookmark bar so you can conviently send
-the current page url to your youtube-dl-server instance.
+Add the following bookmarklet to your bookmark bar to send the current page URL
+to your youtube-dl-server instance.
 
 #### HTTPS
 
-If your youtube-dl-server is served through https (behind a reverse proxy
-handling https for example), you can use the following bookmarklet:
+If your youtube-dl-server is served through HTTPS (behind a reverse proxy
+handling HTTPS for example), you can use the following bookmarklet:
 
 ```javascript
-javascript:fetch("https://${host}/api/downloads",{body:JSON.stringify({url:window.location.href,format:"bestvideo"}),method:"POST",headers:{'Content-Type':'application/json'}});
+javascript:fetch("https://${host}/api/downloads",{body:JSON.stringify({url:window.location.href,format:"video/best"}),method:"POST",headers:{'Content-Type':'application/json'}});
 ```
 
-#### Plain text
+#### Plain HTTP
 
 If you are hosting it without HTTPS, the previous bookmarklet will likely be
-blocked by your browser (as it will generate mixed content when used on HTTPS
-sites).
+blocked by your browser (mixed content when used on HTTPS sites).
 
 Instead, you can use the following bookmarklet:
 
@@ -217,10 +353,11 @@ javascript:(function(){document.body.innerHTML += '<form name="ydl_form" method=
 
 ## Notes
 
-### Support extra formats
+### Extra format support
 
 `ffmpeg` is required for format conversion and audio extraction in some
 scenarios.
+
 ## Additional references
 
 * [ansible-role-youtubedl-server](https://github.com/nbr23/ansible-role-youtubedl-server)
