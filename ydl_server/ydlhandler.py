@@ -265,6 +265,17 @@ class YdlHandler:
 
         cmd = self.get_ydl_full_cmd(ydl_opts, job.url, extra_opts)
 
+        try:
+            fmt_proc = Popen(
+                self.get_ydl_full_cmd(ydl_opts, job.url, extra_opts + ["--simulate", "--print", "%(format)s"]),
+                stdout=PIPE, stderr=PIPE
+            )
+            fmt_stdout, _ = fmt_proc.communicate()
+            if fmt_proc.returncode == 0 and fmt_stdout.strip():
+                output.write("[format] {}\n".format(fmt_stdout.decode().strip()))
+        except Exception as e:
+            print("Error looking up format", e)
+
         proc = Popen(cmd, stdout=PIPE, stderr=STDOUT)
         self.jobshandler.put((Actions.SET_PID, (job.id, proc.pid)))
         stdout_thread = Thread(
