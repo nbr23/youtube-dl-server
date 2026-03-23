@@ -4,7 +4,7 @@
         <a type="button">
           <SvgIcon name="folder-plus" color="var(--bs-teal)" />
         </a>
-        <a href="#" @click.stop.prevent="$emit('delete', item.name)">
+        <a href="#" @click.stop.prevent="$emit('delete', fullPath)">
           <SvgIcon name="trash" color="var(--bs-red)" />
         </a>
       </td>
@@ -20,7 +20,7 @@
         :item="child"
         :depth="depth + 1"
         :parent-path="parentPath ? `${parentPath}/${item.name}` : item.name"
-        @delete="$emit('delete', `${parentPath}/${item.name}/${$event}`)"
+        @delete="$emit('delete', $event)"
       />
     </template>
     <tr v-else-if="!item.directory">
@@ -28,7 +28,7 @@
         <a :href="`api/finished/${encodeURIComponent(fullPath)}`" download>
           <SvgIcon name="download" color="var(--bs-teal)" />
         </a>
-        <a href="#" @click.prevent="$emit('delete', item.name)" style="cursor: pointer;">
+        <a href="#" @click.prevent="$emit('delete', fullPath)" style="cursor: pointer;">
           <SvgIcon name="trash" color="var(--bs-red)" />
         </a>
       </td>
