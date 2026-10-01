@@ -25,6 +25,22 @@ pipeline {
                 }
             }
         }
+        stage('Tests') {
+            steps {
+                sh '''#!/bin/bash
+                    set -euo pipefail
+                    test_image="youtube-dl-server-tests:${BUILD_TAG}"
+                    trap 'docker image rm "$test_image" >/dev/null' EXIT
+                    docker buildx build \
+                        --pull \
+                        --builder "$BUILDX_BUILDER" \
+                        --target test \
+                        --load \
+                        --tag "$test_image" .
+                    docker run --rm "$test_image"
+                '''
+            }
+        }
         stage('Build yt_dlp Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKERHUB_CREDENTIALS_USR', passwordVariable: 'DOCKERHUB_CREDENTIALS_PSW')]) {
