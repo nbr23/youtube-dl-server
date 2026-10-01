@@ -81,6 +81,9 @@ def with_cursor(f):
             result = f(self, cursor, *args, **kwargs)
             self.conn.commit()
             return result
+        except Exception:
+            self.conn.rollback()
+            raise
         finally:
             cursor.close()
     return wrapper

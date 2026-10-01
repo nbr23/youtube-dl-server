@@ -1,9 +1,11 @@
+import json
 import os
 import re
 import shutil
 import signal
 from pathlib import Path
 
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from ydl_server.config import (
@@ -15,6 +17,7 @@ from ydl_server.config import (
     resolve_finished_file,
 )
 from ydl_server.db import Actions, Job, JobsDB, JobType
+from ydl_server.jobshandler import JobInsertError, JobInsertTimeout
 
 TIMESTAMP_RE = re.compile(r"^(\d+(\.\d+)?|(\d+:)?[0-5]?\d:[0-5]?\d(\.\d+)?)$")
 
@@ -32,6 +35,59 @@ def prefix_format(prefix, value):
 
 
 MAX_TREE_DEPTH = 32
+
+
+async def parse_download_request(request):
+    is_form = request.headers.get("Content-Type", "").partition(";")[0].strip().lower() == "application/x-www-form-urlencoded"
+    if is_form:
+        data = dict(await request.form())
+    else:
+        try:
+            data = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ValueError("Invalid JSON request body") from exc
+    if not isinstance(data, dict):
+        raise TypeError("Request body must be an object")
+    for key in ("url", "profile", "audio_format", "format"):
+        if data.get(key) is not None and not isinstance(data[key], str):
+            raise TypeError(f"{key} must be a string")
+    urls = data.get("urls", [])
+    if not isinstance(urls, list) or any(not isinstance(url, str) or not url.strip() for url in urls):
+        raise TypeError("urls must be an array of non-empty strings")
+    urls = list(urls)
+    if data.get("url") is not None:
+        if not data["url"].strip():
+            raise ValueError("url must be a non-empty string")
+        urls.append(data["url"])
+    if not urls:
+        raise ValueError("'url' and 'urls' query parameters omitted")
+    aliases = data.get("aliases", [])
+    if isinstance(aliases, str):
+        aliases = [alias.strip() for alias in aliases.split(",") if alias.strip()]
+    if not isinstance(aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in aliases):
+        raise TypeError("aliases must be an array of non-empty strings or a comma-separated string")
+    force_generic = data.get("force_generic_extractor", False)
+    if is_form and force_generic in ("true", "false"):
+        force_generic = force_generic == "true"
+    if not isinstance(force_generic, bool):
+        raise TypeError("force_generic_extractor must be a boolean")
+    extra_params = data.get("extra_params", {})
+    if not isinstance(extra_params, dict):
+        raise TypeError("extra_params must be an object")
+    title = extra_params.get("title")
+    if title is not None and title != "" and not is_valid_download_title(title):
+        raise ValueError("Invalid download title")
+    return {**data, "urls": urls, "aliases": aliases, "force_generic_extractor": force_generic, "extra_params": extra_params}
+
+
+async def insert_job(request, job):
+    try:
+        await run_in_threadpool(request.app.state.jobshandler.insert_and_wait, job)
+    except JobInsertTimeout:
+        return JSONResponse({"success": False, "error": "Timed out waiting for the job queue"}, status_code=503)
+    except JobInsertError:
+        return JSONResponse({"success": False, "error": "Could not add job to the queue"}, status_code=503)
+    return None
 
 
 def build_finished_tree(root_dir, seen=None, depth=0):
@@ -145,7 +201,9 @@ async def api_cut_file(request):
         [fname],
         extra_params={"start": start, "end": end, "mode": mode, "output": output},
     )
-    request.app.state.jobshandler.put((Actions.INSERT, job))
+    error = await insert_job(request, job)
+    if error is not None:
+        return error
 
     return JSONResponse({"success": True, "output": output})
 
@@ -262,8 +320,10 @@ async def api_jobs_retry(request):
     )
     new_job.force_generic_extractor = job.get("force_generic_extractor", False)
 
+    error = await insert_job(request, new_job)
+    if error is not None:
+        return error
     request.app.state.jobshandler.put((Actions.DELETE_LOG_SAFE, job))
-    request.app.state.jobshandler.put((Actions.INSERT, new_job))
 
     return JSONResponse({"success": True})
 
@@ -275,20 +335,16 @@ async def api_jobs_delete(request):
     return JSONResponse({"success": False})
 
 async def api_queue_download(request):
-    if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
-        data = await request.form()
-    else:
-        data = await request.json()
-    url = data.get("url")
-    urls = data.get("urls", [])
+    try:
+        data = await parse_download_request(request)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    urls = data["urls"]
     profile = data.get("profile")
-    aliases = data.get("aliases", [])
+    aliases = data["aliases"]
     audio_format = data.get("audio_format")
     format_str = data.get("format")
-    force_generic_extractor = data.get("force_generic_extractor", False)
-
-    if isinstance(aliases, str):
-        aliases = [a for a in aliases.split(",") if a]
+    force_generic_extractor = data["force_generic_extractor"]
 
     if profile:
         format_str = ','.join(filter(None, [format_str, prefix_format("profile", profile)]))
@@ -300,42 +356,26 @@ async def api_queue_download(request):
         format_str = app_config["ydl_server"].get("default_format", "video/best")
     options = {"format": format_str, "force_generic_extractor": force_generic_extractor}
 
-    if url:
-        urls.append(url)
-
-    if len(urls) == 0:
-        return JSONResponse(
-            {"success": False, "error": "'url' and 'urls' query parameters omitted"}
-        )
-
-    extra_params = data.get("extra_params", {})
-    if not isinstance(extra_params, dict):
-        return JSONResponse({"success": False, "error": "extra_params must be an object"}, status_code=400)
-    title = extra_params.get("title")
-    if title is not None and title != "" and not is_valid_download_title(title):
-        return JSONResponse({"success": False, "error": "Invalid download title"}, status_code=400)
+    extra_params = data["extra_params"]
 
     job = Job(
         ", ".join(urls), Job.PENDING, "", JobType.YDL_DOWNLOAD, format_str, urls, extra_params=extra_params
     )
     job.force_generic_extractor = force_generic_extractor
-    request.app.state.jobshandler.insert_and_wait(job)
+    error = await insert_job(request, job)
+    if error is not None:
+        return error
 
     print("Added url " + ",".join(urls) + " to the download queue")
     return JSONResponse({"success": True, "urls": urls, "options": options, "job_id": job.id})
 
 
 async def api_metadata_fetch(request):
-    if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
-        data = await request.form()
-    else:
-        data = await request.json()
-    url = data.get("url")
-    urls = data.get("urls", [])
-    force_generic_extractor = data.get("force_generic_extractor", False)
-    if url:
-        urls.append(url)
-    rc, stdout = request.app.state.ydlhandler.fetch_metadata(urls, force_generic_extractor=force_generic_extractor)
+    try:
+        data = await parse_download_request(request)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    rc, stdout = request.app.state.ydlhandler.fetch_metadata(data["urls"], force_generic_extractor=data["force_generic_extractor"])
     if rc == 0:
         return JSONResponse(stdout)
     return JSONResponse({"success": False}, status_code=404)
