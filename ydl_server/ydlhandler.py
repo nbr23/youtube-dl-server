@@ -489,14 +489,12 @@ class YdlHandler:
         stdout_thread.join()
 
     def resume_pending(self):
-        db = JobsDB(readonly=False)
-        jobs = db.get_jobs_with_logs(self.app_config["ydl_server"].get("max_log_entries", 100))
-        not_endeds = [
-            job
-            for job in jobs
-            if job["status"] == "Pending" or job["status"] == "Running"
-        ]
-        for pending in not_endeds:
+        db = JobsDB(readonly=True)
+        try:
+            jobs = db.get_unfinished_jobs()
+        finally:
+            db.close()
+        for pending in jobs:
             job = Job(
                 pending["name"],
                 Job.PENDING,
@@ -504,10 +502,10 @@ class YdlHandler:
                 int(pending["type"]),
                 pending["format"],
                 pending["urls"],
-                extra_params=pending.get("extra_params", {})
+                id=pending["id"],
+                force_generic_extractor=pending["force_generic_extractor"],
+                extra_params=pending["extra_params"],
             )
-            job.id = pending["id"]
-            job.force_generic_extractor = pending.get("force_generic_extractor", False)
             self.jobshandler.put((Actions.RESUME, job))
 
     def join(self):

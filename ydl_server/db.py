@@ -522,6 +522,33 @@ class JobsDB:
         return rows
 
     @with_cursor
+    def get_unfinished_jobs(self, cursor):
+        cursor.execute(
+            """
+            SELECT
+                id, name, format, type, url, force_generic_extractor, extra_params
+            FROM
+                jobs
+            WHERE
+                status IN (?, ?)
+            ORDER BY id;
+            """,
+            (Job.PENDING, Job.RUNNING),
+        )
+        return [
+            {
+                "id": job_id,
+                "name": name,
+                "format": format,
+                "type": jobtype,
+                "urls": url.split("\n"),
+                "force_generic_extractor": bool(force_generic_extractor),
+                "extra_params": json.loads(extra_params or '{}'),
+            }
+            for job_id, name, format, jobtype, url, force_generic_extractor, extra_params in cursor.fetchall()
+        ]
+
+    @with_cursor
     def get_due_scheduled_jobs(self, cursor, now):
         cursor.execute(
             """

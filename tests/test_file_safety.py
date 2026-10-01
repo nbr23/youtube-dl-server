@@ -88,6 +88,75 @@ class FileSafetyTests(unittest.TestCase):
             "video/best", ["https://example.com/video"], force_generic_extractor=force_generic,
         )
 
+    def prepare_recovery(self):
+        (self.root / "state").mkdir()
+        self.db.JobsDB.init()
+        database = self.db.JobsDB(readonly=False)
+        self.addCleanup(database.close)
+        handler = self.ydlhandler.YdlHandler.__new__(self.ydlhandler.YdlHandler)
+        handler.app_config = self.config.app_config
+        handler.jobshandler = Mock()
+        return database, handler
+
+    def test_restart_recovers_all_jobs_above_history_limit(self):
+        database, handler = self.prepare_recovery()
+        expected_ids = []
+        for _ in range(105):
+            job = self.make_job()
+            database.insert_job(job)
+            expected_ids.append(job.id)
+        with patch.dict(self.config.app_config["ydl_server"], {"max_log_entries": 100}):
+            handler.resume_pending()
+        resumed = [call.args[0] for call in handler.jobshandler.put.call_args_list]
+        self.assertEqual([job.id for action, job in resumed], expected_ids)
+        self.assertTrue(all(action == self.db.Actions.RESUME for action, job in resumed))
+
+    def test_restart_recovers_old_unfinished_jobs_among_newer_history(self):
+        database, handler = self.prepare_recovery()
+        unfinished_ids = []
+        for status in (self.db.Job.PENDING, self.db.Job.RUNNING):
+            job = self.make_job()
+            job.status = status
+            database.insert_job(job)
+            unfinished_ids.append(job.id)
+        database.conn.execute("UPDATE jobs SET last_update = '2000-01-01 00:00:00'")
+        database.conn.commit()
+        for status in (self.db.Job.COMPLETED, self.db.Job.FAILED, self.db.Job.ABORTED, self.db.Job.SCHEDULED):
+            job = self.make_job()
+            job.status = status
+            database.insert_job(job)
+        with patch.dict(self.config.app_config["ydl_server"], {"max_log_entries": 2}):
+            handler.resume_pending()
+        resumed = [call.args[0][1] for call in handler.jobshandler.put.call_args_list]
+        self.assertEqual([job.id for job in resumed], unfinished_ids)
+        self.assertTrue(all(job.status == self.db.Job.PENDING for job in resumed))
+
+    def test_restart_preserves_download_and_cut_job_parameters(self):
+        database, handler = self.prepare_recovery()
+        download = self.make_job(force_generic=True)
+        download.name = "Custom download"
+        download.format = "profile/podcast,alias/thumbnails"
+        download.url = ["https://example.com/first", "https://example.com/second"]
+        download.extra_params = {"title": "Custom title", "schedule_attempts": 2}
+        cut = self.db.Job("Cut video", self.db.Job.RUNNING, "old log", self.db.JobType.FFMPEG_CUT,
+                          None, ["video.mp4"], pid=12345,
+                          extra_params={"start": "10", "end": "20", "mode": "fast", "output": "clip.mp4"})
+        for job in (download, cut):
+            database.insert_job(job)
+        handler.resume_pending()
+        resumed = [call.args[0][1] for call in handler.jobshandler.put.call_args_list]
+        self.assertEqual(len(resumed), 2)
+        for original, recovered in zip((download, cut), resumed, strict=True):
+            self.assertEqual(recovered.id, original.id)
+            self.assertEqual(recovered.name, original.name)
+            self.assertEqual(recovered.type, original.type)
+            self.assertEqual(recovered.format, original.format)
+            self.assertEqual(recovered.url, original.url)
+            self.assertEqual(recovered.extra_params, original.extra_params)
+            self.assertIs(recovered.force_generic_extractor, original.force_generic_extractor)
+            self.assertEqual(recovered.status, self.db.Job.PENDING)
+            self.assertEqual(recovered.pid, 0)
+
     def test_malformed_download_requests_are_rejected(self):
         invalid = [None, [], {}, {"url": ""}, {"url": 1}, {"urls": "url"}, {"urls": [1]}, {"urls": [""]}]
         for key, value in (
