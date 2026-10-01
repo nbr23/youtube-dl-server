@@ -11,6 +11,7 @@ from ydl_server.config import (
     get_finished_path,
     get_ui_aliases,
     get_ydl_formats,
+    is_valid_download_title,
     resolve_finished_file,
 )
 from ydl_server.db import Actions, Job, JobsDB, JobType
@@ -86,6 +87,14 @@ async def api_delete_file(request):
     if fname is None:
         return JSONResponse({"success": False, "message": "Invalid filename"})
     fname = Path(fname)
+    root = Path(os.path.realpath(get_finished_path()))
+    if any(part.startswith(".") for part in fname.relative_to(root).parts):
+        return JSONResponse({"success": False, "message": "Invalid filename"}, status_code=400)
+    metadata_db_path = app_config["ydl_server"].get("metadata_db_path")
+    if metadata_db_path:
+        metadata_db_path = Path(os.path.realpath(metadata_db_path))
+        if fname == metadata_db_path or fname in metadata_db_path.parents:
+            return JSONResponse({"success": False, "message": "Invalid filename"}, status_code=400)
     try:
         if fname.is_dir():
             shutil.rmtree(fname)
@@ -300,6 +309,11 @@ async def api_queue_download(request):
         )
 
     extra_params = data.get("extra_params", {})
+    if not isinstance(extra_params, dict):
+        return JSONResponse({"success": False, "error": "extra_params must be an object"}, status_code=400)
+    title = extra_params.get("title")
+    if title is not None and title != "" and not is_valid_download_title(title):
+        return JSONResponse({"success": False, "error": "Invalid download title"}, status_code=400)
 
     job = Job(
         ", ".join(urls), Job.PENDING, "", JobType.YDL_DOWNLOAD, format_str, urls, extra_params=extra_params

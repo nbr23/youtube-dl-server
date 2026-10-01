@@ -12,7 +12,7 @@ from subprocess import PIPE, STDOUT, Popen
 from threading import Thread
 from time import sleep
 
-from ydl_server.config import resolve_finished_file
+from ydl_server.config import is_valid_download_title, resolve_finished_file
 from ydl_server.db import Actions, Job, JobsDB, JobType
 
 YDL_MODULES = ["youtube_dl", "youtube_dlc", "yt_dlp"]
@@ -357,6 +357,9 @@ class YdlHandler:
         return cmd
 
     def download(self, job, request_options, output):
+        download_title = job.extra_params.get("title")
+        if download_title is not None and download_title != "" and not is_valid_download_title(download_title):
+            raise OptionsError("Invalid download title")
         ydl_opts = self.get_ydl_options(
             self.app_config.get("ydl_options", {}), request_options
         )
@@ -402,9 +405,9 @@ class YdlHandler:
                     )
                 }
             )
-        elif job.extra_params.get("title") and ydl_opts.get("output"):
-            output_template_parts = ydl_opts.get("output").split("/")
-            output_template = '/'.join(output_template_parts[:-1]) + f"/{job.extra_params.get("title")}.%(ext)s"
+        elif download_title and ydl_opts.get("output"):
+            output_dir = os.path.dirname(ydl_opts["output"])
+            output_template = os.path.join(output_dir, download_title.replace("%", "%%") + ".%(ext)s")
             ydl_opts.update(
                 {
                     "output": output_template,

@@ -183,11 +183,20 @@ def get_finished_path():
     return finished_path + "/"
 
 
+def is_valid_download_title(title):
+    return (
+        isinstance(title, str)
+        and bool(title.strip())
+        and not title.startswith(".")
+        and not any(c in "/\\" or ord(c) < 32 or ord(c) == 127 for c in title)
+    )
+
+
 def resolve_finished_file(fname):
     """Resolve fname within the finished directory, or None if it escapes it."""
     root = os.path.realpath(get_finished_path())
     path = os.path.realpath(os.path.join(root, fname))
-    if path != root and os.path.commonpath((path, root)) != root:
+    if path == root or os.path.commonpath((path, root)) != root:
         return None
     return path
 
