@@ -1,7 +1,8 @@
-import signal
+from contextlib import asynccontextmanager
 
 import uvicorn
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -14,12 +15,20 @@ from ydl_server.ydlhandler import YdlHandler
 if __name__ == "__main__":
     JobsDB.init()
 
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            await run_in_threadpool(shutdown)
+
     middleware = [Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])]
 
     app = Starlette(
         routes=routes,
         debug=app_config["ydl_server"].get("debug", False),
         middleware=middleware,
+        lifespan=lifespan,
     )
 
     app.state.running = True
@@ -30,16 +39,9 @@ if __name__ == "__main__":
         if not app.state.running:
             return
         print("Shutting down...")
-        app.state.jobshandler.finish()
-        app.state.ydlhandler.finish()
-        print("Waiting for workers to wrap up...")
-        app.state.ydlhandler.join()
-        app.state.jobshandler.join()
-        print("Shutdown complete.")
         app.state.running = False
-
-    signal.signal(signal.SIGINT, lambda sig, frame: shutdown())
-    signal.signal(signal.SIGTERM, lambda sig, frame: shutdown())
+        app.state.ydlhandler.shutdown()
+        print("Shutdown complete.")
 
     app.state.ydlhandler.start()
     print("Started download threads")
@@ -48,12 +50,15 @@ if __name__ == "__main__":
 
     app.state.ydlhandler.resume_pending()
 
-    uvicorn.run(
-        app,
-        host=app_config["ydl_server"].get("host"),
-        port=app_config["ydl_server"].get("port"),
-        log_level=("debug" if app_config["ydl_server"].get("debug", False) else "info"),
-        forwarded_allow_ips=app_config["ydl_server"].get("forwarded_allow_ips", None),
-        proxy_headers=app_config["ydl_server"].get("proxy_headers", True),
-    )
-    shutdown()
+    try:
+        uvicorn.run(
+            app,
+            host=app_config["ydl_server"].get("host"),
+            port=app_config["ydl_server"].get("port"),
+            log_level=("debug" if app_config["ydl_server"].get("debug", False) else "info"),
+            forwarded_allow_ips=app_config["ydl_server"].get("forwarded_allow_ips", None),
+            proxy_headers=app_config["ydl_server"].get("proxy_headers", True),
+            timeout_graceful_shutdown=app_config["ydl_server"].get("shutdown_timeout", 5),
+        )
+    finally:
+        shutdown()

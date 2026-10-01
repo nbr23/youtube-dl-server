@@ -2,7 +2,6 @@ import json
 import os
 import re
 import shutil
-import signal
 from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
@@ -283,25 +282,13 @@ async def api_jobs_stop(request):
 
     if not job:
         return JSONResponse({"success": False}, status_code=404)
-    if job["status"] == "Pending":
-        print("Cancelling pending job")
-        request.app.state.jobshandler.put(
-            (Actions.SET_STATUS, (job["id"], Job.ABORTED))
-        )
-        return JSONResponse({"success": True})
-    if job["status"] == "Running" and int(job["pid"]) != 0:
-        print("Stopping running job", job["pid"])
-        try:
-            print(os.kill(job["pid"], signal.SIGINT))
-        except ProcessLookupError:
-            print("Process already dead")
-        return JSONResponse({"success": True})
-    if int(job["pid"]) == 0:
-        request.app.state.jobshandler.put(
-            (Actions.SET_STATUS, (job["id"], Job.ABORTED))
-        )
-        return JSONResponse({"success": True})
-    return JSONResponse({"success": False})
+    try:
+        aborted = await run_in_threadpool(request.app.state.jobshandler.submit_and_wait, Actions.ABORT, job["id"])
+    except (JobInsertError, JobInsertTimeout):
+        return JSONResponse({"success": False, "error": "Could not stop job"}, status_code=503)
+    if aborted:
+        request.app.state.ydlhandler.cancel(job["id"])
+    return JSONResponse({"success": aborted})
 
 
 async def api_jobs_retry(request):

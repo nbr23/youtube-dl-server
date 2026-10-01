@@ -1,3 +1,4 @@
+import codecs
 import importlib
 import io
 import json
@@ -5,13 +6,13 @@ import math
 import os
 import re
 import shlex
+import signal
 import time
 from datetime import datetime, timezone
 from importlib import metadata
 from queue import Empty, Queue
 from subprocess import PIPE, STDOUT, Popen, TimeoutExpired
-from threading import BoundedSemaphore, Thread
-from time import sleep
+from threading import BoundedSemaphore, Condition, Event, RLock, Thread, Timer
 
 from ydl_server.config import is_valid_download_title, resolve_finished_file
 from ydl_server.db import Actions, Job, JobsDB, JobType
@@ -40,6 +41,10 @@ class MetadataBusy(MetadataError):
 
 
 class MetadataTimeout(MetadataError):
+    pass
+
+
+class JobInterrupted(MetadataError):
     pass
 
 # Fallback when an extractor announces an upcoming event without a release timestamp
@@ -88,10 +93,6 @@ def parse_upcoming_delay(output):
     if not match:
         return None
     return int(time.time()) + int(match.group(1)) * DELAY_UNIT_SECONDS[match.group(2).lower()]
-
-
-def read_proc_stdout(proc, strio):
-    strio.write(proc.stdout.read1().decode())
 
 
 def format_cmd(cmd):
@@ -147,6 +148,19 @@ class YdlHandler:
         self.ydl_extractors = []
         self.app_config = app_config
         self.jobshandler = jobshandler
+        self.process_lock = RLock()
+        self.processes_changed = Condition(self.process_lock)
+        self.processes = {}
+        self.stop_timers = {}
+        self.active_jobs = {}
+        self.process_stop_timeout = app_config["ydl_server"].get("process_stop_timeout", 2)
+        if (
+            isinstance(self.process_stop_timeout, bool)
+            or not isinstance(self.process_stop_timeout, (int, float))
+            or not math.isfinite(self.process_stop_timeout)
+            or self.process_stop_timeout <= 0
+        ):
+            raise OptionsError("process_stop_timeout must be a positive number")
 
         metadata_workers = app_config["ydl_server"].get("metadata_workers_count", 2)
         self.metadata_timeout = app_config["ydl_server"].get("metadata_timeout", 60)
@@ -181,35 +195,110 @@ class YdlHandler:
         self.queue.put(obj)
 
     def finish(self):
-        self.done = True
+        with self.process_lock:
+            self.done = True
+            for proc in self.processes:
+                self.interrupt_process(proc)
+
+    def shutdown(self):
+        self.jobshandler.stop_scheduler()
+        self.finish()
+        self.join()
+        self.jobshandler.finish()
+        self.jobshandler.join()
+
+    def cancel(self, job_id):
+        with self.process_lock:
+            event = self.active_jobs.get(job_id)
+            if event is not None:
+                event.set()
+            for proc, process_job_id in self.processes.items():
+                if process_job_id == job_id:
+                    self.interrupt_process(proc)
+
+    def check_interrupted(self, job=None):
+        with self.process_lock:
+            event = self.active_jobs.get(job.id) if job is not None else None
+            if self.done or (event is not None and event.is_set()):
+                raise JobInterrupted("Job interrupted")
+
+    def signal_process(self, proc, sig):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            pass
+
+    def kill_process(self, proc):
+        with self.process_lock:
+            if proc in self.processes:
+                self.signal_process(proc, signal.SIGKILL)
+
+    def interrupt_process(self, proc):
+        if proc in self.stop_timers:
+            return
+        self.signal_process(proc, signal.SIGINT)
+        timer = Timer(self.process_stop_timeout, self.kill_process, args=(proc,))
+        timer.daemon = True
+        self.stop_timers[proc] = timer
+        timer.start()
+
+    def start_process(self, cmd, job=None, **kwargs):
+        with self.process_lock:
+            self.check_interrupted(job)
+            proc = Popen(cmd, start_new_session=True, **kwargs)
+            self.processes[proc] = job.id if job is not None else None
+            if job is not None:
+                self.jobshandler.put((Actions.SET_PID, (job.id, proc.pid)))
+            return proc
+
+    def release_process(self, proc, job=None):
+        with self.process_lock:
+            timer = self.stop_timers.pop(proc, None)
+            if timer is not None:
+                timer.cancel()
+            self.processes.pop(proc, None)
+            self.processes_changed.notify_all()
+            if job is not None:
+                self.jobshandler.put((Actions.SET_PID, (job.id, 0)))
 
     def worker(self, thread_id):
         db = JobsDB(readonly=True)
-        while not self.done:
-            try:
-                job = self.queue.get(timeout=1)
-            except Empty:
-                continue
-            job_detail = db.get_job_by_id(job.id)
-            if not job_detail or job_detail["status"] == "Aborted":
-                self.queue.task_done()
-                continue
-            job.status = Job.RUNNING
-            self.jobshandler.put((Actions.SET_STATUS, (job.id, job.status)))
-            self.queue.task_done()
-            output = io.StringIO()
-            try:
-                if job.type == JobType.YDL_DOWNLOAD:
-                    self.download(job, {"format": job.format}, output)
-                elif job.type == JobType.FFMPEG_CUT:
-                    self.cut(job, output)
-            except Exception as e:  # noqa: BLE001 - worker thread must survive any download failure
-                job.status = Job.FAILED
-                job.log = f"Error during download task:\n{type(e).__name__}:\n\t{e!s}"
-                print(
-                    f"Error during download task:\n{type(e).__name__}:\n\t{e!s}"
-                )
-            self.jobshandler.put((Actions.UPDATE, job))
+        try:
+            while not self.done:
+                try:
+                    job = self.queue.get(timeout=1)
+                except Empty:
+                    continue
+                event = Event()
+                with self.process_lock:
+                    self.active_jobs[job.id] = event
+                try:
+                    job_detail = db.get_job_by_id(job.id)
+                    if not job_detail or job_detail["status"] == "Aborted":
+                        continue
+                    job.status = Job.RUNNING
+                    self.jobshandler.put((Actions.SET_STATUS, (job.id, job.status)))
+                    output = io.StringIO()
+                    try:
+                        self.check_interrupted(job)
+                        if job.type == JobType.YDL_DOWNLOAD:
+                            self.download(job, {"format": job.format}, output)
+                        elif job.type == JobType.FFMPEG_CUT:
+                            self.cut(job, output)
+                    except JobInterrupted:
+                        job.status = Job.ABORTED if event.is_set() else Job.PENDING
+                        job.log = Job.clean_logs(output.getvalue() + "\nJob interrupted\n")
+                    except Exception as e:  # noqa: BLE001 - worker thread must survive any download failure
+                        job.status = Job.FAILED
+                        job.log = f"Error during download task:\n{type(e).__name__}:\n\t{e!s}"
+                        print(job.log)
+                    self.jobshandler.put((Actions.UPDATE, job))
+                finally:
+                    with self.process_lock:
+                        self.active_jobs.pop(job.id, None)
+                    self.queue.task_done()
+        finally:
+            db.close()
 
     def get_format_and_profile(self, format_string):
         fmt, audio, profile, aliases = None, None, None, []
@@ -282,35 +371,66 @@ class YdlHandler:
         return ydl_config
 
     def download_log_update(self, job, proc, strio):
-        while job.status == Job.RUNNING:
-            read_proc_stdout(proc, strio)
-            job.log = Job.clean_logs(strio.getvalue())
-            self.jobshandler.put((Actions.SET_LOG, (job.id, job.log)))
-            sleep(3)
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        last_update = 0
+        while chunk := proc.stdout.read1():
+            strio.write(decoder.decode(chunk))
+            if time.monotonic() - last_update >= 3:
+                last_update = time.monotonic()
+                self.jobshandler.put((Actions.SET_LOG, (job.id, Job.clean_logs(strio.getvalue()))))
+        strio.write(decoder.decode(b"", final=True))
 
-    def run_metadata_command(self, cmd, wait=True):
-        if not self.metadata_slots.acquire(blocking=wait):
+    def run_logged_command(self, cmd, job, output):
+        proc = self.start_process(cmd, job, stdout=PIPE, stderr=STDOUT)
+        reader = Thread(target=self.download_log_update, args=(job, proc, output))
+        reader.start()
+        try:
+            rc = proc.wait()
+            reader.join()
+            job.log = Job.clean_logs(output.getvalue())
+            if rc != 0:
+                self.check_interrupted(job)
+            with self.process_lock:
+                event = self.active_jobs.get(job.id)
+                if event is not None and event.is_set():
+                    raise JobInterrupted("Job cancelled")
+            return rc
+        finally:
+            proc.stdout.close()
+            self.release_process(proc, job)
+
+    def run_metadata_command(self, cmd, wait=True, job=None):
+        self.check_interrupted(job)
+        if wait:
+            while not self.metadata_slots.acquire(timeout=0.1):
+                self.check_interrupted(job)
+        elif not self.metadata_slots.acquire(blocking=False):
             raise MetadataBusy("Metadata extraction is busy")
         try:
-            proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
+            proc = self.start_process(cmd, job, stdout=PIPE, stderr=PIPE)
             try:
-                stdout, stderr = proc.communicate(timeout=self.metadata_timeout)
-            except TimeoutExpired as exc:
-                proc.kill()
-                proc.communicate()
-                raise MetadataTimeout("Metadata extraction timed out") from exc
-            return proc.returncode, stdout, stderr
+                try:
+                    stdout, stderr = proc.communicate(timeout=self.metadata_timeout)
+                except TimeoutExpired as exc:
+                    self.kill_process(proc)
+                    proc.communicate()
+                    self.check_interrupted(job)
+                    raise MetadataTimeout("Metadata extraction timed out") from exc
+                self.check_interrupted(job)
+                return proc.returncode, stdout, stderr
+            finally:
+                self.release_process(proc, job)
         finally:
             self.metadata_slots.release()
 
-    def fetch_metadata(self, url, force_generic_extractor=False, wait=True):
+    def fetch_metadata(self, url, force_generic_extractor=False, wait=True, job=None):
         ydl_opts = self.app_config.get("ydl_options", {})
         extra_opts = ["-J", "--flat-playlist"]
         if force_generic_extractor:
             extra_opts.append("--force-generic-extractor")
         cmd = self.get_ydl_full_cmd(ydl_opts, url, extra_opts)
 
-        rc, stdout, stderr = self.run_metadata_command(cmd, wait=wait)
+        rc, stdout, stderr = self.run_metadata_command(cmd, wait=wait, job=job)
         if rc != 0:
             return -1, stderr.decode(errors="replace")
         try:
@@ -321,7 +441,7 @@ class YdlHandler:
             raise MetadataError("Invalid metadata output")
         return 0, metadata
 
-    def probe_upcoming(self, url, force_generic_extractor=False, error_output=None):
+    def probe_upcoming(self, url, force_generic_extractor=False, error_output=None, job=None):
         """Release timestamp and title of an upcoming live event, or None.
 
         --ignore-no-formats-error turns the "This live event will begin in ..."
@@ -335,7 +455,7 @@ class YdlHandler:
             extra_opts.append("--force-generic-extractor")
         cmd = self.get_ydl_full_cmd(ydl_opts, url, extra_opts)
 
-        rc, stdout, _ = self.run_metadata_command(cmd)
+        rc, stdout, _ = self.run_metadata_command(cmd, job=job)
         if rc != 0:
             return None
 
@@ -413,11 +533,11 @@ class YdlHandler:
             extra_opts.append("--force-generic-extractor")
         cmd = self.get_ydl_full_cmd(ydl_opts, job.url, extra_opts)
 
-        rc, metadata = self.fetch_metadata(job.url, force_generic_extractor=force_generic)
+        rc, metadata = self.fetch_metadata(job.url, force_generic_extractor=force_generic, job=job)
         if rc != 0:
             job.log = Job.clean_logs(f"[cmd] {format_cmd(cmd)}\n{metadata}")
             upcoming = self.probe_upcoming(
-                job.url, force_generic_extractor=force_generic, error_output=metadata
+                job.url, force_generic_extractor=force_generic, error_output=metadata, job=job
             )
             if upcoming:
                 self.schedule_job(job, *upcoming)
@@ -462,36 +582,23 @@ class YdlHandler:
         output.write(f"[cmd] {format_cmd(cmd)}\n")
 
         try:
-            fmt_proc = Popen(
+            fmt_rc, fmt_stdout, _ = self.run_metadata_command(
                 self.get_ydl_full_cmd(ydl_opts, job.url, extra_opts + ["--simulate", "--print", "%(format)s"]),
-                stdout=PIPE, stderr=PIPE
+                job=job,
             )
-            fmt_stdout, _ = fmt_proc.communicate()
-            if fmt_proc.returncode == 0 and fmt_stdout.strip():
+            if fmt_rc == 0 and fmt_stdout.strip():
                 output.write(f"[format] {fmt_stdout.decode().strip()}\n")
         except (OSError, UnicodeDecodeError) as e:
             print("Error looking up format", e)
 
-        proc = Popen(cmd, stdout=PIPE, stderr=STDOUT)
-        self.jobshandler.put((Actions.SET_PID, (job.id, proc.pid)))
-        stdout_thread = Thread(
-            target=self.download_log_update, args=(job, proc, output)
-        )
-        stdout_thread.start()
-
-        rc = proc.wait()
+        rc = self.run_logged_command(cmd, job, output)
         if rc == 0:
-            read_proc_stdout(proc, output)
-            job.log = Job.clean_logs(output.getvalue())
             job.status = Job.COMPLETED
         else:
-            read_proc_stdout(proc, output)
-            job.log = Job.clean_logs(output.getvalue())
             job.status = Job.FAILED
             print(
                 "Error in download process (RC=" + str(rc) + "):\n" + output.getvalue()
             )
-        stdout_thread.join()
 
     def cut(self, job, output):
         params = job.extra_params
@@ -511,16 +618,12 @@ class YdlHandler:
         cmd.append(dst)
 
         output.write(f"[cmd] {format_cmd(cmd)}\n")
-        proc = Popen(cmd, stdout=PIPE, stderr=STDOUT)
-        self.jobshandler.put((Actions.SET_PID, (job.id, proc.pid)))
-        stdout_thread = Thread(
-            target=self.download_log_update, args=(job, proc, output)
-        )
-        stdout_thread.start()
-
-        rc = proc.wait()
-        read_proc_stdout(proc, output)
-        job.log = Job.clean_logs(output.getvalue())
+        try:
+            rc = self.run_logged_command(cmd, job, output)
+        except JobInterrupted:
+            if os.path.isfile(dst):
+                os.remove(dst)
+            raise
         if rc == 0:
             job.status = Job.COMPLETED
         else:
@@ -530,7 +633,6 @@ class YdlHandler:
             print(
                 "Error in cut process (RC=" + str(rc) + "):\n" + output.getvalue()
             )
-        stdout_thread.join()
 
     def resume_pending(self):
         db = JobsDB(readonly=True)
@@ -555,3 +657,5 @@ class YdlHandler:
     def join(self):
         for thread in self.threads:
             thread.join()
+        with self.processes_changed:
+            self.processes_changed.wait_for(lambda: not self.processes)

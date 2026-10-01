@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,244 @@ class FileSafetyTests(unittest.TestCase):
         handler.ydl_module_name = "yt-dlp"
         return handler
 
+    def start_job_worker(self):
+        manager, downloads = self.start_manager()
+        handler = self.make_metadata_handler(timeout=5)
+        handler.app_config = self.config.app_config
+        handler.process_stop_timeout = 0.1
+        handler.jobshandler = manager
+        handler.queue = downloads
+        thread = Thread(target=handler.worker, args=(0,))
+        handler.threads.append(thread)
+        thread.start()
+
+        def cleanup():
+            handler.finish()
+            handler.join()
+
+        self.addCleanup(cleanup)
+        return manager, handler
+
+    def wait_for_queue(self, queue):
+        with queue.all_tasks_done:
+            self.assertTrue(queue.all_tasks_done.wait_for(lambda: queue.unfinished_tasks == 0, timeout=3))
+
+    def spawn_waiting_process(self, entered, processes, **kwargs):
+        program = "import signal,time; signal.signal(signal.SIGINT, signal.SIG_IGN); print('ready', flush=True); time.sleep(60)"
+        proc = subprocess.Popen([sys.executable, "-u", "-c", program], **kwargs)
+        processes.append(proc)
+
+        def cleanup():
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate()
+
+        self.addCleanup(cleanup)
+        self.assertEqual(proc.stdout.readline(), b"ready\n")
+        entered.set()
+        return proc
+
+    def test_stop_cancels_metadata_upcoming_format_download_and_cut_stages(self):
+        for stage in ("metadata", "upcoming", "format", "download", "cut"):
+            with self.subTest(stage=stage):
+                manager, handler = self.start_job_worker()
+                entered, processes = Event(), []
+                job = self.make_job()
+                if stage == "upcoming":
+                    handler.fetch_metadata = Mock(return_value=(-1, "upcoming"))
+                elif stage in ("format", "download"):
+                    handler.fetch_metadata = Mock(return_value=(0, [{"title": "video"}]))
+                elif stage == "cut":
+                    (self.root / "video.mp4").write_text("video")
+                    job.type = self.db.JobType.FFMPEG_CUT
+                    job.url = ["video.mp4"]
+                    job.extra_params = {"output": "clip.mp4", "mode": "fast"}
+
+                def spawn(cmd, stage=stage, entered=entered, processes=processes, **kwargs):
+                    if stage == "download" and "--simulate" in cmd:
+                        proc = Mock(returncode=0, pid=12345)
+                        proc.communicate.return_value = (b"selected format\n", b'')
+                        return proc
+                    return self.spawn_waiting_process(entered, processes, **kwargs)
+
+                try:
+                    with patch.object(self.ydlhandler, "Popen", side_effect=spawn) as spawn_mock:
+                        manager.insert_and_wait(job, timeout=1)
+                        self.assertTrue(entered.wait(timeout=3))
+                        request = self.make_request({}, manager)
+                        request.app.state.ydlhandler = handler
+                        request.path_params = {"job_id": str(job.id)}
+                        response = asyncio.run(self.views.api_jobs_stop(request))
+                        self.assertTrue(json.loads(response.body)["success"])
+                        self.wait_for_queue(handler.queue)
+                        manager.submit_and_wait(self.db.Actions.SET_NAME, (job.id, "stopped"), timeout=1)
+                        database = self.db.JobsDB()
+                        try:
+                            stopped = database.get_job_by_id(job.id)
+                        finally:
+                            database.close()
+                        self.assertEqual(stopped["status"], "Aborted")
+                        self.assertEqual(stopped["pid"], 0)
+                        self.assertEqual(spawn_mock.call_count, 2 if stage == "download" else 1)
+                        self.assertTrue(all(proc.returncode == -signal.SIGKILL for proc in processes))
+                        self.assertFalse(handler.processes)
+                        self.assertFalse(handler.stop_timers)
+                finally:
+                    handler.shutdown()
+
+    def test_pending_stop_prevents_a_subprocess_from_starting(self):
+        manager, downloads = self.start_manager()
+        handler = self.make_metadata_handler()
+        handler.jobshandler = manager
+        handler.queue = downloads
+        job = self.make_job()
+        manager.insert_and_wait(job, timeout=1)
+        request = self.make_request({}, manager)
+        request.app.state.ydlhandler = handler
+        request.path_params = {"job_id": str(job.id)}
+        response = asyncio.run(self.views.api_jobs_stop(request))
+        self.assertTrue(json.loads(response.body)["success"])
+        with patch.object(self.ydlhandler, "Popen") as spawn:
+            thread = Thread(target=handler.worker, args=(0,))
+            handler.threads.append(thread)
+            thread.start()
+            try:
+                self.wait_for_queue(downloads)
+                spawn.assert_not_called()
+            finally:
+                handler.shutdown()
+
+    def test_aborted_jobs_cannot_be_revived_by_stale_updates_or_scheduling(self):
+        manager, downloads = self.start_manager()
+        database = self.db.JobsDB(readonly=False)
+        self.addCleanup(database.close)
+        job = self.make_job()
+        job.status = self.db.Job.SCHEDULED
+        job.pid = 12345
+        database.insert_job(job)
+        self.assertTrue(manager.submit_and_wait(self.db.Actions.ABORT, job.id, timeout=1))
+        job.status = self.db.Job.PENDING
+        manager.submit_and_wait(self.db.Actions.RESUME, job, timeout=1)
+        manager.put((self.db.Actions.SET_STATUS, (job.id, self.db.Job.RUNNING)))
+        job.status = self.db.Job.COMPLETED
+        manager.submit_and_wait(self.db.Actions.UPDATE, job, timeout=1)
+        stopped = database.get_job_by_id(job.id)
+        self.assertEqual(stopped["status"], "Aborted")
+        self.assertEqual(stopped["pid"], 0)
+        self.assertTrue(downloads.empty())
+
+    def test_stop_does_not_signal_a_stale_database_pid(self):
+        manager, _ = self.start_manager()
+        handler = self.make_metadata_handler()
+        database = self.db.JobsDB(readonly=False)
+        self.addCleanup(database.close)
+        job = self.make_job()
+        job.status = self.db.Job.RUNNING
+        job.pid = 12345
+        database.insert_job(job)
+        request = self.make_request({}, manager)
+        request.app.state.ydlhandler = handler
+        request.path_params = {"job_id": str(job.id)}
+        with patch.object(self.ydlhandler.os, "killpg") as send_signal:
+            response = asyncio.run(self.views.api_jobs_stop(request))
+        self.assertTrue(json.loads(response.body)["success"])
+        send_signal.assert_not_called()
+
+    def test_shutdown_interrupts_active_work_and_keeps_queued_jobs_recoverable(self):
+        manager, handler = self.start_job_worker()
+        manager.scheduler_thread = Thread(target=manager.scheduler_worker)
+        manager.scheduler_thread.start()
+        entered, processes = Event(), []
+        active, pending = self.make_job(), self.make_job()
+
+        def spawn(cmd, **kwargs):
+            return self.spawn_waiting_process(entered, processes, **kwargs)
+
+        with patch.object(self.ydlhandler, "Popen", side_effect=spawn):
+            manager.insert_and_wait(active, timeout=1)
+            self.assertTrue(entered.wait(timeout=3))
+            manager.insert_and_wait(pending, timeout=1)
+            handler.shutdown()
+        database = self.db.JobsDB()
+        try:
+            for job in (active, pending):
+                stored = database.get_job_by_id(job.id)
+                self.assertEqual(stored["status"], "Pending")
+                self.assertEqual(stored["pid"], 0)
+        finally:
+            database.close()
+        self.assertFalse(manager.thread.is_alive())
+        self.assertFalse(manager.scheduler_thread.is_alive())
+        self.assertEqual(manager.queue.unfinished_tasks, 0)
+        self.assertTrue(all(proc.returncode is not None for proc in processes))
+
+    def test_shutdown_persists_worker_completion_and_final_logs(self):
+        manager, handler = self.start_job_worker()
+        completed = Event()
+
+        def download(job, options, output):
+            job.status = self.db.Job.COMPLETED
+            job.log = "final output\n"
+            handler.finish()
+            completed.set()
+
+        handler.download = download
+        job = self.make_job()
+        manager.insert_and_wait(job, timeout=1)
+        self.assertTrue(completed.wait(timeout=3))
+        handler.shutdown()
+        database = self.db.JobsDB()
+        try:
+            stored = database.get_job_by_id(job.id)
+            self.assertEqual(stored["status"], "Completed")
+            self.assertEqual(stored["log"], "final output\n")
+        finally:
+            database.close()
+        self.assertEqual(manager.queue.unfinished_tasks, 0)
+
+    def test_database_worker_drains_actions_after_finish(self):
+        database, _ = self.prepare_recovery()
+        job = self.make_job()
+        database.insert_job(job)
+        manager = self.jobshandler.JobsHandler(self.config.app_config)
+        job.status = self.db.Job.COMPLETED
+        job.log = "completed\n"
+        manager.put((self.db.Actions.UPDATE, job))
+        manager.finish()
+        manager, _ = self.start_manager(manager)
+        manager.join()
+        self.assertEqual(database.get_job_by_id(job.id)["status"], "Completed")
+        self.assertEqual(manager.queue.unfinished_tasks, 0)
+
+    def test_shutdown_interrupts_anonymous_metadata_requests(self):
+        handler = self.make_metadata_handler(timeout=5)
+        handler.process_stop_timeout = 0.1
+        entered, processes, interrupted = Event(), [], Event()
+
+        def spawn(cmd, **kwargs):
+            return self.spawn_waiting_process(entered, processes, **kwargs)
+
+        def fetch():
+            try:
+                handler.fetch_metadata(["https://example.com/video"])
+            except self.ydlhandler.JobInterrupted:
+                interrupted.set()
+
+        with patch.object(self.ydlhandler, "Popen", side_effect=spawn):
+            thread = Thread(target=fetch)
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(timeout=3))
+                handler.finish()
+                handler.join()
+                thread.join(timeout=3)
+                self.assertFalse(thread.is_alive())
+                self.assertTrue(interrupted.is_set())
+                self.assertFalse(handler.processes)
+            finally:
+                handler.finish()
+                thread.join(timeout=3)
+
     def test_metadata_requests_are_bounded_and_do_not_block_other_endpoints(self):
         handler = self.make_metadata_handler()
         entered, release = Event(), Event()
@@ -164,11 +403,14 @@ class FileSafetyTests(unittest.TestCase):
         stalled, successful = Mock(), Mock(returncode=0)
         stalled.communicate.side_effect = [subprocess.TimeoutExpired("yt-dlp", 3), (b'', b'')]
         successful.communicate.return_value = (b'{"title": "video"}\n', b'')
-        with patch.object(self.ydlhandler, "Popen", side_effect=[stalled, successful]):
+        with (
+            patch.object(self.ydlhandler, "Popen", side_effect=[stalled, successful]),
+            patch.object(handler, "signal_process") as stop,
+        ):
             with self.assertRaises(self.ydlhandler.MetadataTimeout):
                 handler.fetch_metadata(["https://example.com/video"])
             result = handler.fetch_metadata(["https://example.com/video"], wait=False)
-        stalled.kill.assert_called_once()
+        stop.assert_called_once_with(stalled, signal.SIGKILL)
         self.assertEqual(stalled.communicate.call_count, 2)
         self.assertEqual(stalled.communicate.call_args_list[0].kwargs, {"timeout": 3})
         self.assertEqual(result, (0, [{"title": "video"}]))
@@ -213,10 +455,11 @@ class FileSafetyTests(unittest.TestCase):
         proc.communicate.side_effect = [subprocess.TimeoutExpired("yt-dlp", 3), (b'', b'')]
         with (
             patch.object(self.ydlhandler, "Popen", return_value=proc),
+            patch.object(handler, "signal_process") as stop,
             self.assertRaises(self.ydlhandler.MetadataTimeout),
         ):
             handler.probe_upcoming(["https://example.com/video"])
-        proc.kill.assert_called_once()
+        stop.assert_called_once_with(proc, signal.SIGKILL)
         self.assertEqual(proc.communicate.call_args_list[0].kwargs, {"timeout": 3})
 
     def test_invalid_metadata_limits_are_rejected(self):
@@ -500,7 +743,7 @@ class FileSafetyTests(unittest.TestCase):
     def test_custom_titles_preserve_output_directory_and_escape_templates(self):
         for template in ("%(title)s.%(ext)s", "media/%(title)s.%(ext)s", str(self.root / "%(title)s.%(ext)s")):
             with self.subTest(template=template):
-                handler = self.ydlhandler.YdlHandler.__new__(self.ydlhandler.YdlHandler)
+                handler = self.make_metadata_handler()
                 handler.app_config = {"ydl_server": {}, "ydl_options": {"output": template}}
                 handler.ydl_module_name = "yt-dlp"
                 handler.jobshandler = Mock()

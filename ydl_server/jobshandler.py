@@ -2,7 +2,7 @@ import logging
 import time
 from concurrent.futures import Future
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 
 from ydl_server.db import Actions, Job, JobsDB
 
@@ -23,6 +23,7 @@ class JobsHandler:
         self.thread = None
         self.scheduler_thread = None
         self.done = False
+        self.scheduler_stop = Event()
         self.app_config = app_config
 
     def start(self, dl_queue):
@@ -32,29 +33,40 @@ class JobsHandler:
         self.scheduler_thread.start()
 
     def stop(self):
-        self.done = True
+        self.finish()
 
     def put(self, obj):
         self.queue.put(obj)
 
     def insert_and_wait(self, job, timeout=5):
+        return self.submit_and_wait(Actions.INSERT, job, timeout)
+
+    def submit_and_wait(self, action, job, timeout=5):
+        if self.done:
+            raise JobInsertError("Job manager is stopped")
         future = Future()
-        self.queue.put((Actions.INSERT, job, future))
+        self.queue.put((action, job, future))
         try:
             return future.result(timeout)
         except TimeoutError as exc:
             future.cancel()
             raise JobInsertTimeout("Timed out waiting for the job queue") from exc
         except Exception as exc:
-            raise JobInsertError("Could not insert job") from exc
+            raise JobInsertError("Could not process job action") from exc
+
+    def stop_scheduler(self):
+        self.scheduler_stop.set()
+        if self.scheduler_thread is not None:
+            self.scheduler_thread.join()
 
     def finish(self):
+        self.stop_scheduler()
         self.done = True
 
     def worker(self, dl_queue):
         db = JobsDB(readonly=False)
         try:
-            while not self.done:
+            while not self.done or not self.queue.empty():
                 try:
                     item = self.queue.get(timeout=1)
                 except Empty:
@@ -65,7 +77,7 @@ class JobsHandler:
                     future = item[2] if len(item) > 2 else None
                     if future is not None and not future.set_running_or_notify_cancel():
                         continue
-                    self.handle_action(db, dl_queue, action, job)
+                    result = self.handle_action(db, dl_queue, action, job)
                 except Exception as exc:
                     logger.exception("Error processing job action %s", action)
                     error = exc
@@ -75,7 +87,7 @@ class JobsHandler:
                     if error is not None:
                         future.set_exception(error)
                     else:
-                        future.set_result(job.id)
+                        future.set_result(result)
         finally:
             db.close()
 
@@ -88,11 +100,14 @@ class JobsHandler:
                 db.vacuum()
             db.insert_job(job)
             dl_queue.put(job)
+            return job.id
         elif action == Actions.UPDATE:
             db.update_job(job)
         elif action == Actions.RESUME:
-            db.update_job(job)
-            dl_queue.put(job)
+            if db.update_job(job):
+                dl_queue.put(job)
+        elif action == Actions.ABORT:
+            return db.abort_job(job)
         elif action == Actions.SET_NAME:
             job_id, name = job
             db.set_job_name(job_id, name)
@@ -116,15 +131,16 @@ class JobsHandler:
                 db.vacuum()
         else:
             raise ValueError(f"Unknown job action: {action}")
+        return None
 
     def scheduler_worker(self):
         """Re-queue scheduled jobs (upcoming live events) once their release time is reached."""
         db = JobsDB(readonly=True)
         interval = self.app_config["ydl_server"].get("schedule_check_interval", 60)
         elapsed = interval
-        while not self.done:
+        while not self.scheduler_stop.is_set():
             if elapsed < interval:
-                time.sleep(1)
+                self.scheduler_stop.wait(1)
                 elapsed += 1
                 continue
             elapsed = 0

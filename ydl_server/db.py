@@ -31,6 +31,7 @@ class Actions:
     SET_PID = 10
     DELETE_LOG = 11
     DELETE_LOG_SAFE = 12
+    ABORT = 13
 
 
 class JobType:
@@ -265,7 +266,7 @@ class JobsDB:
             """
             UPDATE jobs
             SET status = ?, log = ?, last_update = datetime(), force_generic_extractor = ?, extra_params = ?, scheduled_at = ? \
-            WHERE id = ?;
+            WHERE id = ? AND (status != ? OR ? = ?);
             """,
             (
                 job.status,
@@ -274,8 +275,12 @@ class JobsDB:
                 json.dumps(getattr(job, "extra_params", {})),
                 getattr(job, "scheduled_at", None),
                 job.id,
+                Job.ABORTED,
+                job.status,
+                Job.ABORTED,
             ),
         )
+        return cursor.rowcount
 
     @with_cursor
     def set_job_status(self, cursor, job_id, status):
@@ -283,10 +288,22 @@ class JobsDB:
             """
             UPDATE jobs
             SET status = ?, last_update = datetime() \
-            WHERE id = ?;
+            WHERE id = ? AND (status != ? OR ? = ?);
             """,
-            (status, job_id),
+            (status, job_id, Job.ABORTED, status, Job.ABORTED),
         )
+
+    @with_cursor
+    def abort_job(self, cursor, job_id):
+        cursor.execute(
+            """
+            UPDATE jobs
+            SET status = ?, pid = 0, scheduled_at = NULL, last_update = datetime()
+            WHERE id = ? AND status IN (?, ?, ?);
+            """,
+            (Job.ABORTED, job_id, Job.PENDING, Job.RUNNING, Job.SCHEDULED),
+        )
+        return bool(cursor.rowcount)
 
     @with_cursor
     def set_job_pid(self, cursor, job_id, pid):
