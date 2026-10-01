@@ -3,6 +3,8 @@ import importlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -87,6 +89,140 @@ class FileSafetyTests(unittest.TestCase):
             "video", self.db.Job.PENDING, "", self.db.JobType.YDL_DOWNLOAD,
             "video/best", ["https://example.com/video"], force_generic_extractor=force_generic,
         )
+
+    def make_metadata_handler(self, workers=1, timeout=1):
+        config = {"ydl_server": {"metadata_workers_count": workers, "metadata_timeout": timeout}, "ydl_options": {}}
+        with patch.object(self.ydlhandler.YdlHandler, "import_ydl_module"):
+            handler = self.ydlhandler.YdlHandler(config, Mock())
+        handler.ydl_module_name = "yt-dlp"
+        return handler
+
+    def test_metadata_requests_are_bounded_and_do_not_block_other_endpoints(self):
+        handler = self.make_metadata_handler()
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        proc = Mock(returncode=0)
+
+        def communicate(**kwargs):
+            entered.set()
+            release.wait(timeout=2)
+            return b'{"title": "video"}\n', b''
+
+        proc.communicate.side_effect = communicate
+        request = self.make_request({"url": "https://example.com/video"})
+        request.app.state.ydlhandler = handler
+
+        async def check():
+            first = asyncio.create_task(self.views.api_metadata_fetch(request))
+            try:
+                self.assertTrue(await asyncio.wait_for(asyncio.to_thread(entered.wait, 1), timeout=1.5))
+                self.assertFalse(first.done())
+                second = await asyncio.wait_for(self.views.api_metadata_fetch(request), timeout=0.5)
+                self.assertEqual(second.status_code, 503)
+                formats = await asyncio.wait_for(self.views.api_list_formats(request), timeout=0.5)
+                self.assertEqual(formats.status_code, 200)
+                self.assertFalse(first.done())
+            finally:
+                release.set()
+            response = await first
+            self.assertEqual(json.loads(response.body), [{"title": "video"}])
+            self.assertEqual((await self.views.api_metadata_fetch(request)).status_code, 200)
+
+        with patch.object(self.ydlhandler, "Popen", return_value=proc) as spawn:
+            asyncio.run(check())
+        self.assertEqual(spawn.call_count, 2)
+
+    def test_metadata_timeout_kills_and_reaps_the_subprocess(self):
+        handler = self.make_metadata_handler(timeout=0.05)
+        handler.get_ydl_full_cmd = Mock(return_value=[sys.executable, "-c", "import time; time.sleep(60)"])
+        processes = []
+
+        def spawn(*args, **kwargs):
+            proc = subprocess.Popen(*args, **kwargs)
+            processes.append(proc)
+
+            def cleanup():
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+
+            self.addCleanup(cleanup)
+            return proc
+
+        with (
+            patch.object(self.ydlhandler, "Popen", side_effect=spawn),
+            self.assertRaises(self.ydlhandler.MetadataTimeout),
+        ):
+            handler.fetch_metadata(["https://example.com/video"])
+        self.assertTrue(handler.metadata_slots.acquire(blocking=False))
+        handler.metadata_slots.release()
+        self.assertEqual(len(processes), 1)
+        self.assertIsNotNone(processes[0].returncode)
+
+    def test_metadata_timeout_cleanup_is_followed_by_a_successful_request(self):
+        handler = self.make_metadata_handler(timeout=3)
+        stalled, successful = Mock(), Mock(returncode=0)
+        stalled.communicate.side_effect = [subprocess.TimeoutExpired("yt-dlp", 3), (b'', b'')]
+        successful.communicate.return_value = (b'{"title": "video"}\n', b'')
+        with patch.object(self.ydlhandler, "Popen", side_effect=[stalled, successful]):
+            with self.assertRaises(self.ydlhandler.MetadataTimeout):
+                handler.fetch_metadata(["https://example.com/video"])
+            result = handler.fetch_metadata(["https://example.com/video"], wait=False)
+        stalled.kill.assert_called_once()
+        self.assertEqual(stalled.communicate.call_count, 2)
+        self.assertEqual(stalled.communicate.call_args_list[0].kwargs, {"timeout": 3})
+        self.assertEqual(result, (0, [{"title": "video"}]))
+
+    def test_metadata_endpoint_reports_timeouts_and_extraction_errors(self):
+        for error, status in (
+            (self.ydlhandler.MetadataTimeout(), 504), (self.ydlhandler.MetadataError(), 502),
+            (OSError("private executable path"), 502),
+        ):
+            with self.subTest(error=type(error).__name__):
+                request = self.make_request({"url": "https://example.com/video"})
+                request.app.state.ydlhandler.fetch_metadata.side_effect = error
+                response = asyncio.run(self.views.api_metadata_fetch(request))
+                self.assertEqual(response.status_code, status)
+                self.assertFalse(json.loads(response.body)["success"])
+                self.assertNotIn("private executable path", response.body.decode())
+
+    def test_invalid_metadata_output_does_not_leak_capacity(self):
+        handler = self.make_metadata_handler()
+        proc = Mock(returncode=0)
+        for output in (b'', b'not json', b'null', b'[]', b'\xff'):
+            with self.subTest(output=output), patch.object(self.ydlhandler, "Popen", return_value=proc):
+                proc.communicate.return_value = (output, b'')
+                with self.assertRaises(self.ydlhandler.MetadataError):
+                    handler.fetch_metadata(["https://example.com/video"], wait=False)
+        proc.communicate.return_value = (b'{"title": "video"}\n', b'')
+        with patch.object(self.ydlhandler, "Popen", return_value=proc):
+            self.assertEqual(handler.fetch_metadata(["https://example.com/video"], wait=False)[0], 0)
+
+    def test_metadata_spawn_failure_does_not_leak_capacity(self):
+        handler = self.make_metadata_handler()
+        proc = Mock(returncode=0)
+        proc.communicate.return_value = (b'{"title": "video"}\n', b'')
+        with patch.object(self.ydlhandler, "Popen", side_effect=[OSError("failed"), proc]):
+            with self.assertRaises(OSError):
+                handler.fetch_metadata(["https://example.com/video"], wait=False)
+            self.assertEqual(handler.fetch_metadata(["https://example.com/video"], wait=False)[0], 0)
+
+    def test_upcoming_probe_uses_the_metadata_timeout(self):
+        handler = self.make_metadata_handler(timeout=3)
+        proc = Mock()
+        proc.communicate.side_effect = [subprocess.TimeoutExpired("yt-dlp", 3), (b'', b'')]
+        with (
+            patch.object(self.ydlhandler, "Popen", return_value=proc),
+            self.assertRaises(self.ydlhandler.MetadataTimeout),
+        ):
+            handler.probe_upcoming(["https://example.com/video"])
+        proc.kill.assert_called_once()
+        self.assertEqual(proc.communicate.call_args_list[0].kwargs, {"timeout": 3})
+
+    def test_invalid_metadata_limits_are_rejected(self):
+        for workers, timeout in ((0, 1), (-1, 1), (True, 1), (1.5, 1), (1, 0), (1, -1), (1, True), (1, float("inf"))):
+            with self.subTest(workers=workers, timeout=timeout), self.assertRaises(self.ydlhandler.OptionsError):
+                self.make_metadata_handler(workers, timeout)
 
     def prepare_recovery(self):
         (self.root / "state").mkdir()

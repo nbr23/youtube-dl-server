@@ -1,6 +1,7 @@
 import importlib
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -8,8 +9,8 @@ import time
 from datetime import datetime, timezone
 from importlib import metadata
 from queue import Empty, Queue
-from subprocess import PIPE, STDOUT, Popen
-from threading import Thread
+from subprocess import PIPE, STDOUT, Popen, TimeoutExpired
+from threading import BoundedSemaphore, Thread
 from time import sleep
 
 from ydl_server.config import is_valid_download_title, resolve_finished_file
@@ -27,6 +28,18 @@ class DownloadError(Exception):
 
 
 class CutError(Exception):
+    pass
+
+
+class MetadataError(Exception):
+    pass
+
+
+class MetadataBusy(MetadataError):
+    pass
+
+
+class MetadataTimeout(MetadataError):
     pass
 
 # Fallback when an extractor announces an upcoming event without a release timestamp
@@ -134,6 +147,19 @@ class YdlHandler:
         self.ydl_extractors = []
         self.app_config = app_config
         self.jobshandler = jobshandler
+
+        metadata_workers = app_config["ydl_server"].get("metadata_workers_count", 2)
+        self.metadata_timeout = app_config["ydl_server"].get("metadata_timeout", 60)
+        if isinstance(metadata_workers, bool) or not isinstance(metadata_workers, int) or metadata_workers <= 0:
+            raise OptionsError("metadata_workers_count must be a positive integer")
+        if (
+            isinstance(self.metadata_timeout, bool)
+            or not isinstance(self.metadata_timeout, (int, float))
+            or not math.isfinite(self.metadata_timeout)
+            or self.metadata_timeout <= 0
+        ):
+            raise OptionsError("metadata_timeout must be a positive number")
+        self.metadata_slots = BoundedSemaphore(metadata_workers)
 
         self.app_config["ydl_last_update"] = datetime.now(timezone.utc)
 
@@ -262,19 +288,38 @@ class YdlHandler:
             self.jobshandler.put((Actions.SET_LOG, (job.id, job.log)))
             sleep(3)
 
-    def fetch_metadata(self, url, force_generic_extractor=False):
+    def run_metadata_command(self, cmd, wait=True):
+        if not self.metadata_slots.acquire(blocking=wait):
+            raise MetadataBusy("Metadata extraction is busy")
+        try:
+            proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
+            try:
+                stdout, stderr = proc.communicate(timeout=self.metadata_timeout)
+            except TimeoutExpired as exc:
+                proc.kill()
+                proc.communicate()
+                raise MetadataTimeout("Metadata extraction timed out") from exc
+            return proc.returncode, stdout, stderr
+        finally:
+            self.metadata_slots.release()
+
+    def fetch_metadata(self, url, force_generic_extractor=False, wait=True):
         ydl_opts = self.app_config.get("ydl_options", {})
         extra_opts = ["-J", "--flat-playlist"]
         if force_generic_extractor:
             extra_opts.append("--force-generic-extractor")
         cmd = self.get_ydl_full_cmd(ydl_opts, url, extra_opts)
 
-        proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
-        stdout, stderr = proc.communicate()
-        if proc.wait() != 0:
-            return -1, stderr.decode()
-
-        return 0, [json.loads(s) for s in stdout.decode().strip().split("\n")]
+        rc, stdout, stderr = self.run_metadata_command(cmd, wait=wait)
+        if rc != 0:
+            return -1, stderr.decode(errors="replace")
+        try:
+            metadata = [json.loads(line) for line in stdout.decode().splitlines() if line.strip()]
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise MetadataError("Invalid metadata output") from exc
+        if not metadata or any(not isinstance(item, dict) for item in metadata):
+            raise MetadataError("Invalid metadata output")
+        return 0, metadata
 
     def probe_upcoming(self, url, force_generic_extractor=False, error_output=None):
         """Release timestamp and title of an upcoming live event, or None.
@@ -290,9 +335,8 @@ class YdlHandler:
             extra_opts.append("--force-generic-extractor")
         cmd = self.get_ydl_full_cmd(ydl_opts, url, extra_opts)
 
-        proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
-        stdout, _ = proc.communicate()
-        if proc.wait() != 0:
+        rc, stdout, _ = self.run_metadata_command(cmd)
+        if rc != 0:
             return None
 
         for line in stdout.decode().strip().split("\n"):

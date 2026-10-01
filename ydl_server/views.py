@@ -18,6 +18,7 @@ from ydl_server.config import (
 )
 from ydl_server.db import Actions, Job, JobsDB, JobType
 from ydl_server.jobshandler import JobInsertError, JobInsertTimeout
+from ydl_server.ydlhandler import MetadataBusy, MetadataError, MetadataTimeout
 
 TIMESTAMP_RE = re.compile(r"^(\d+(\.\d+)?|(\d+:)?[0-5]?\d:[0-5]?\d(\.\d+)?)$")
 
@@ -375,7 +376,19 @@ async def api_metadata_fetch(request):
         data = await parse_download_request(request)
     except (TypeError, ValueError) as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
-    rc, stdout = request.app.state.ydlhandler.fetch_metadata(data["urls"], force_generic_extractor=data["force_generic_extractor"])
+    try:
+        rc, stdout = await run_in_threadpool(
+            request.app.state.ydlhandler.fetch_metadata,
+            data["urls"],
+            force_generic_extractor=data["force_generic_extractor"],
+            wait=False,
+        )
+    except MetadataBusy:
+        return JSONResponse({"success": False, "error": "Metadata extraction is busy"}, status_code=503)
+    except MetadataTimeout:
+        return JSONResponse({"success": False, "error": "Metadata extraction timed out"}, status_code=504)
+    except (MetadataError, OSError):
+        return JSONResponse({"success": False, "error": "Could not fetch metadata"}, status_code=502)
     if rc == 0:
         return JSONResponse(stdout)
     return JSONResponse({"success": False}, status_code=404)
