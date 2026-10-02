@@ -12,6 +12,7 @@ const serverInfo = ref({})
 const fetchServerInfo = async () => {
   const url = getAPIUrl('api/info', import.meta.env);
   serverInfo.value = await (await fetch(url)).json();
+  document.title = serverInfo.value.site_title || 'youtube-dl-server';
 };
 
 provide('serverInfo', serverInfo);

@@ -41,7 +41,7 @@ export default {
   <header>
     <nav class="navbar navbar-expand-md navbar-dark">
       <div class="container-fluid">
-        <router-link to="/" class="navbar-brand">{{ prettyModule }}</router-link>
+        <router-link to="/" class="navbar-brand">{{ server_info.site_title || prettyModule }}</router-link>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsingNavbar"
           aria-controls="collapsingNavbar" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>

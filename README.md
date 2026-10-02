@@ -79,6 +79,7 @@ In the above case, if `/var/local/youtube-dl-server/config.yml` does not exist, 
 |-----|---------|-------------|
 | `port` | `8080` | Port to listen on |
 | `host` | `0.0.0.0` | IP to bind to |
+| `site_title` | `null` | Optional browser tab title, navbar brand, and main-page heading; unset or empty preserves each original label. Restart the server after changing it |
 | `metadata_db_path` | `/youtube-dl/.ydl-metadata.db` | Path to the SQLite job database |
 | `output_playlist` | `/youtube-dl/%(playlist_title)s [%(playlist_id)s]/%(title)s.%(ext)s` | Output template for playlists and multi-URL jobs |
 | `max_log_entries` | `100` | Maximum number of job history entries to keep |

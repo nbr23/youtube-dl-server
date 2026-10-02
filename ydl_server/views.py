@@ -215,6 +215,7 @@ async def api_list_extractors(request):
 async def api_server_info(request):
     return JSONResponse(
         {
+            "site_title": app_config["ydl_server"].get("site_title"),
             "ydl_module_name": request.app.state.ydlhandler.ydl_module_name,
             "ydl_module_version": request.app.state.ydlhandler.ydl_version,
             "ydl_module_website": request.app.state.ydlhandler.ydl_website,

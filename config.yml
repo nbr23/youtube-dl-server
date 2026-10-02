@@ -1,6 +1,7 @@
 ydl_server:   # youtube-dl-server specific settings
   port: 8080      # Port youtube-dl-server should listen on
   host: 0.0.0.0   # IP youtube-dl-server should bind to
+  site_title: null
   debug: False    # Enable/Disable debug mode
   metadata_db_path: '/youtube-dl/.ydl-metadata.db' # Path to metadata DB
   output_playlist: '/youtube-dl/%(playlist_title)s [%(playlist_id)s]/%(title)s.%(ext)s' # Playlist output directory template
